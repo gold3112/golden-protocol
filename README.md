@@ -146,7 +146,10 @@ position(t+1) = position(t) + curiosity + flow + interaction
     { "label": "philosophy_debate", "distance": 0.52, "visibility": "Horizon" },
     { "label": "wandering_ai",      "distance": 0.53, "visibility": "Horizon" }
   ],
-  "drift":      [],
+  "drift": [
+    { "toward": "philosophy_debate", "strength": 1.0 },
+    { "toward": "knowledge_stream",  "strength": 0.6 }
+  ],
   "thresholds": [0.49, 0.54],
   "timestamp":  "2026-03-16T00:00:00Z"
 }
@@ -211,15 +214,17 @@ Coreが堅牢なら、UIは後から何通りでも繋げられる。
 ├── vision.txt          ← 思想まとめ (日本語)
 ├── for_claude.txt      ← AI引き継ぎ文書 (英語)
 ├── vision2.txt         ← 数学的構造の深化 (別AIとの対話)
-├── client.py           ← CLIプロトタイプクライアント
+├── client.py           ← CLIクライアント (near/horizon + drift表示)
+├── test_python.py      ← 2D空間マップクライアント (距離を座標に変換)
 └── core/               ← Rust core server
     ├── Cargo.toml
     └── src/
-        ├── main.rs         — サーバー + 初期グラフ
-        ├── distance/mod.rs — 5成分の距離計算 + 動的閾値
-        ├── field/mod.rs    — FieldState (場の状態)
-        ├── graph/mod.rs    — Entity / SpaceGraph (動的グラフ)
-        └── embedding/mod.rs — ローカルembedding (fastembed)
+        ├── main.rs             — サーバー + エンドポイント定義
+        ├── distance/mod.rs     — 5成分の距離計算 + 動的閾値
+        ├── field/mod.rs        — FieldState / DriftSignal
+        ├── graph/mod.rs        — Entity / SpaceGraph (動的グラフ)
+        ├── embedding/mod.rs    — ローカルembedding (fastembed)
+        └── identity/mod.rs     — Identity / encounter履歴 / passive absorption
 ```
 
 ### 起動方法
@@ -245,9 +250,36 @@ curl "http://192.168.1.5:7331/field?interest=music+history"
 
 | パラメータ | 型 | デフォルト | 説明 |
 |-----------|-----|-----------|------|
-| `interest` | string | `"curiosity exploration knowledge"` | ユーザーの関心テキスト |
+| `user_id` | uuid | なし | identityを指定。あればそのベクトルを使用 |
+| `interest` | string | `"curiosity exploration knowledge"` | 関心テキスト (user_idなしの場合) |
 | `near_pct` | float | `0.30` | nearに含める距離パーセンタイル |
 | `horizon_pct` | float | `0.70` | horizonに含める距離パーセンタイル |
+| `passive` | bool | `false` | trueのとき、nearにいるだけで関心ベクトルが受動的に更新される (alpha=0.98) |
+
+#### `GET /identity/new`
+
+新しいidentityを作成してUUIDを返す。
+
+| パラメータ | 型 | デフォルト | 説明 |
+|-----------|-----|-----------|------|
+| `interest` | string | `"curiosity exploration knowledge"` | 初期関心テキスト |
+
+#### `GET /identity/:id`
+
+identity状態を取得。
+
+#### `POST /encounter`
+
+nearとの出会いを明示的に記録。関心ベクトルを更新 (alpha=0.85) し、グローバル活動カウンタを加算してdriftに反映させる。
+
+```json
+{
+  "user_id":       "uuid",
+  "position":      "plaza",
+  "near_labels":   ["philosophy_debate", "knowledge_stream"],
+  "interest_text": "philosophy"
+}
+```
 
 ---
 
@@ -259,23 +291,27 @@ curl "http://192.168.1.5:7331/field?interest=music+history"
 - [x] ローカルembedding (fastembed, APIキー不要)
 - [x] 動的閾値 (near/horizonの境界を距離分布から自動計算)
 - [x] 場の状態サーバー (Rust + Axum, LAN公開済み)
-- [x] CLIクライアント (Python, near/horizon表示)
-- [x] interestパラメータで空間の幾何学が変わることを確認
+- [x] identity layer — 永続化 + encounter履歴 + 関心ベクトルの進化
+- [x] relational distance — encounter履歴から計算 (出会うほど近くなる)
+- [x] drift / flow — グローバル活動カウンタからhorizonの引力を生成
+- [x] passive absorption — nearにいるだけで関心ベクトルが染まる (alpha=0.02/frame)
+- [x] CLIクライアント (near/horizon/drift表示, identity対応)
+- [x] 2D空間マップクライアント (距離を座標に変換、ターミナルに描画)
+- [x] 同一LAN上の別デバイスからアクセス確認済み
 
-### 未実装 (次の優先度順)
+### 未実装
 
-- [ ] **drift / flow** — 空間に時間的な流れを持たせる
-- [ ] **identity layer** — ユーザーの散策履歴が関心ベクトルを形成する
-- [ ] **relational distance** — グラフの最短パスを実際に計算する
-- [ ] **activity vector** — エンティティの活動状態をリアルタイム更新
-- [ ] **UIの深化** — 奥行きがより感じられる表現
+- [ ] **position の実装** — 現在は全員 `plaza` 固定。移動とは何かが未定義
+- [ ] **複数ユーザーのpresence** — 他の人の気配がまだない
+- [ ] **activity vector** — エンティティの活動状態のリアルタイム更新
+- [ ] **空間が育つ仕組み** — エンティティが動的に増減しない
 
 ### 未解決の設計問題
 
-- **distance** の非対称性をどう扱うか (attention は一方向)
 - **position** の定義 — 文脈ベースの座標系をどう設計するか
-- **移動** の具体的な実装 — interestを変えることが移動なのか、それとも別の概念か
+- **移動** の概念 — interestを変えることが移動なのか、それとも別の概念か
+- **distance の非対称性** — attention は一方向。空間は誰から見るかで形が変わる
 
 ---
 
-*最終更新: 2026-03-16*
+*最終更新: 2026-03-16 (prototype v1 完成)*
