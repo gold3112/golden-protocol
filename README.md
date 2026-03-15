@@ -4,7 +4,7 @@
 
 ## デモ
 
-<video src="https://raw.githubusercontent.com/gold3112/golden-protocol/main/Sample_python.mp4" controls width="100%"></video>
+<video src="https://github.com/gold3112/golden-protocol/releases/download/v0.1.0/Sample_python.mp4" controls width="100%"></video>
 
 2D空間マップクライアント (`test_python.py`) の動作。関心テキストを変えると空間の幾何学が変わり、near/horizonの分布が変化する。
 
