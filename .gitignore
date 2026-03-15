@@ -1,0 +1,15 @@
+# Rust
+core/target/
+core/.fastembed_cache/
+
+# Identity data (個人データは除外)
+identities/*.json
+
+# Python
+__pycache__/
+*.pyc
+.golden_identity
+
+# Editor
+.vscode/
+.idea/
