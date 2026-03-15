@@ -2,6 +2,12 @@
 
 > ブラウザは窓だった。次に来るのは箱だ。
 
+## デモ
+
+<video src="Sample_python.mp4" controls width="100%"></video>
+
+2D空間マップクライアント (`test_python.py`) の動作。関心テキストを変えると空間の幾何学が変わり、near/horizonの分布が変化する。
+
 ---
 
 ## 背景と思想
