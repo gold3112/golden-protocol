@@ -4,7 +4,7 @@
 
 ## Demo
 
-<video src="Sample_python.mp4" controls width="100%"></video>
+<video src="https://raw.githubusercontent.com/gold3112/golden-protocol/main/Sample_python.mp4" controls width="100%"></video>
 
 2D spatial map client (`test_python.py`) in action. Changing the interest text reshapes the geometry of the space — near/horizon distribution shifts in real time.
 
