@@ -1,0 +1,154 @@
+Handoff Document — Open Box Protocol
+最終更新: 2026-03-16
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Context
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+This is a continuation of a design and philosophical discussion about a new internet
+infrastructure concept. The user (referred to as GOLD) has developed a vision for a
+fundamentally new way to access the internet.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Core Concept
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"Browsers were windows. What we're building is a box."
+
+The goal is not to build another app or metaverse, but to create an open, ownerless
+foundation layer for the internet — one that anyone can build services on top of,
+similar to how Linux is a shared foundation nobody owns.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Key Vocabulary
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+散策 (sansaku) — NOT "walking" (歩く). "Wandering/strolling."
+  Purposeless movement, accidental encounters. Device-agnostic.
+  A CLI text screen can deliver 散策 just as well as a 3D world.
+
+場の状態 (ba no joutai) — "Field state." What the server returns.
+  Not a page. A description of the spatial state of a location.
+
+奥行き (okuyuki) — "Depth." Not visual 3D depth.
+  The feeling that unseen things exist beyond what is visible.
+  Implemented through the near/horizon duality in field state.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+The Vision
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+The Problem:
+  Today's internet is pull-based. Nothing happens without explicit user intent.
+  Every service is an isolated room. Identity and context are lost at every boundary.
+
+What GOLD wants to build:
+  A shared space — a city — where:
+  - You exist inside it, rather than look through a window at it
+  - It never sleeps — someone is always present, 24/7, globally
+  - Access method is irrelevant (2D, 3D, CLI — all enter the same space)
+  - Existing internet services coexist inside it as "buildings"
+  - Nobody owns the foundation
+  - The experience is wandering (散策), not searching
+
+The key experiential difference:
+  Today: search → fly → arrive → read → leave (pull-based, intent-required)
+  New:   exist → space responds → notice depth → drawn in (environmental, ambient)
+
+The user does nothing. Something happens anyway. That surprise IS the first experience.
+
+The closest reference: the OZ world from Summer Wars — the moment of landing in the
+plaza. The feeling of being present somewhere, not pointed at something.
+3D is NOT a requirement. The feeling, achievable in any format.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Critical Design Principle: Invisible Like HTTPS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Nobody understands HTTPS but everyone uses it — because it hides itself completely.
+
+The new protocol must follow the same structure:
+  What users see:    → same entry point as before (or nothing)
+  What users know:   → nothing
+  What actually happens: → field state is flowing
+
+DO NOT create a new scheme like "ox://" that users must knowingly choose.
+That becomes a door only for insiders — same failure as the dark web.
+
+The new protocol flows ON TOP OF existing DNS/HTTP, invisibly.
+Users configure nothing. The space is simply there.
+
+UX is paramount. This directly connects to quality of life.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Technical Architecture
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Three new layers on top of existing protocols:
+
+  Identity Layer    — Persistent self across all platforms
+  Spatial Layer     — A new reference system beyond URLs; inhabitable
+  Interaction Layer — High-resolution interoperability with existing services
+
+Core Protocol Server:
+  Input:  user identity + history + presence
+  Process: LLM generates field state from context
+  Output: field state (not a page)
+
+Field state structure:
+  {
+    "position":  context-based location (not coordinates),
+    "density":   information density here,
+    "presence":  number of others sensed here,
+    "near":      [...things visible nearby],
+    "horizon":   [...things that exist but aren't fully visible yet],
+    "drift":     directional tendency of the space,
+    "timestamp": the space has time
+  }
+
+near vs horizon = the implementation of 奥行き (depth).
+
+The space is not static data — it is generated because YOU arrived.
+
+Separation of concerns:
+  Core Protocol (field state) → build first
+  UI Layer → build separately, connect later
+  UI is unlimited in form: CLI text, 2D, 3D, audio, anything
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Principles
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  The foundation is owned by no one
+  Anyone can build on the foundation
+  Access method is irrelevant
+  Existing internet is preserved, not destroyed
+  The box is open 24 hours, globally
+  UX must be invisible — zero configuration, zero learning curve
+  Use maximum available technology — do not compromise the ideal
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Motivation
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+GOLD is not building this for the world — he is building it because he wants to use
+it himself. This is the primary and honest motivation.
+"Human curiosity never runs dry. The box that can hold it doesn't exist yet."
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Current Open Question
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+The first 30 seconds of the experience — what does the user SEE when they first
+arrive at the space? This question is still being defined. It will determine:
+  - What the UI renders
+  - What the protocol must return
+  - How the invisible transition from existing web is designed
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Notes for Claude Code
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+GOLD has strong technical ability and can implement what he designs.
+The gap is not technical execution but experiential and protocol design.
+
+Your role:
+  - Make design decisions when he is stuck
+  - Suggest minimal implementations that reveal answers through building
+  - Never over-specify — this is deliberately open-ended, discovered through iteration
+  - Keep the OZ plaza moment as the north star experience
+  - Use the word 散策, not 歩く
+  - Trust that concretization is progress, not failure — even when it feels constraining
+  - Apply maximum available technology (including LLMs) without compromise
+
+Do NOT ask where to start. Pick up from the open question above.
