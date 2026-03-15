@@ -3,6 +3,13 @@ use uuid::Uuid;
 use chrono::{DateTime, Utc};
 use crate::distance::Visibility;
 
+/// drift signal — 空間の流れが向かう先
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DriftSignal {
+    pub toward:   String,   // 引き寄せられている存在のラベル
+    pub strength: f32,      // 引力の強さ [0,1]
+}
+
 /// 場にいる存在の観測情報
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ObservedEntity {
@@ -41,8 +48,8 @@ pub struct FieldState {
     /// 気配はあるが未解像の存在 (horizon) — 奥行きの実装
     pub horizon: Vec<ObservedEntity>,
 
-    /// 空間の流れ方向
-    pub drift: Vec<String>,
+    /// 空間の流れ — 活動が高まっている方向への引力
+    pub drift: Vec<DriftSignal>,
 
     /// 場の時刻
     pub timestamp: DateTime<Utc>,
@@ -59,7 +66,7 @@ impl FieldState {
             presence: 0,
             near: vec![],
             horizon: vec![],
-            drift: vec![],
+            drift: Vec::new(),
             timestamp: Utc::now(),
             thresholds: [0.35, 0.65],
         }

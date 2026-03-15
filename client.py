@@ -117,6 +117,15 @@ def render_field(field, identity, interest):
         print(f"  {DIM}{GRAY}  静寂。{RESET}")
         print()
 
+    # drift
+    drift = field.get("drift", [])
+    if drift:
+        print(f"  {YELLOW}— DRIFT —{RESET}")
+        for d in drift:
+            bar = render_bar(d["strength"], width=8, fill="→", empty=" ")
+            print(f"  {YELLOW}{bar}{RESET} {d['toward']}")
+        print()
+
     print(f"{CYAN}{rule('─')}{RESET}")
     print(f"  {GRAY}near<{thresh[0]:.2f}  horizon<{thresh[1]:.2f}  (dynamic){RESET}")
     print(f"  {GRAY}[{interest or 'default interest'}]{RESET}")
@@ -170,7 +179,7 @@ def main():
     time.sleep(0.6)
 
     while True:
-        params = {}
+        params = {"passive": "true"} if identity else {}
         if identity:
             params["user_id"] = identity["id"]
         if interest:

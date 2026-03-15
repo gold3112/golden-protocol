@@ -125,4 +125,43 @@ impl Identity {
     pub fn encounter_count(&self) -> usize {
         self.history.len()
     }
+
+    /// relational distance: 過去に何回出会ったかから計算
+    /// 出会うほど近く (距離が下がる)
+    pub fn relational_dist(&self, label: &str) -> f32 {
+        let count = self.history.iter()
+            .filter(|r| r.near_labels.iter().any(|l| l == label))
+            .count();
+        1.0 / (1.0 + count as f32)
+    }
+
+    /// passive absorption: nearにいるだけで関心ベクトルが少しずつ染まる
+    /// alpha=0.98 (明示的encounterの0.85より遥かに遅い)
+    pub fn passive_absorb(&mut self, near_embeddings: Vec<Vec<f32>>, position: &str) {
+        if near_embeddings.is_empty() {
+            return;
+        }
+        let dim = self.interest_vec.len();
+        let mut avg = vec![0.0f32; dim];
+        let mut count = 0;
+
+        for emb in &near_embeddings {
+            if emb.len() == dim {
+                for (i, v) in emb.iter().enumerate() {
+                    avg[i] += v;
+                }
+                count += 1;
+            }
+        }
+        if count == 0 { return; }
+        avg.iter_mut().for_each(|v| *v /= count as f32);
+
+        self.interest_vec = self.interest_vec.iter()
+            .zip(avg.iter())
+            .map(|(c, a)| 0.98 * c + 0.02 * a)
+            .collect();
+
+        self.position  = position.to_string();
+        self.last_seen = Utc::now();
+    }
 }

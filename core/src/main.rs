@@ -9,23 +9,25 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use distance::{
-    compute_distance, relational_dist, semantic_dist, temporal_dist,
-    DistanceWeights, DynamicThresholds,
-};
-use field::{FieldState, ObservedEntity};
+use distance::{compute_distance, semantic_dist, temporal_dist, DistanceWeights, DynamicThresholds};
+use field::{DriftSignal, FieldState, ObservedEntity};
 use graph::{Entity, EntityKind, SpaceGraph};
 use identity::Identity;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
+// --- 共有状態 ---
+
 struct AppState {
-    graph:   Mutex<SpaceGraph>,
-    weights: DistanceWeights,
+    graph:    Mutex<SpaceGraph>,
+    weights:  DistanceWeights,
+    /// グローバル活動カウンタ: label -> 累計encounter数 (drift計算用)
+    activity: Mutex<HashMap<String, u32>>,
 }
 
-// --- クエリ / リクエスト型 ---
+// --- リクエスト / レスポンス型 ---
 
 #[derive(Deserialize)]
 struct FieldQuery {
@@ -33,13 +35,15 @@ struct FieldQuery {
     interest:    Option<String>,
     near_pct:    Option<f32>,
     horizon_pct: Option<f32>,
+    /// trueのとき、nearに存在するだけで関心ベクトルが受動的に更新される
+    passive:     Option<bool>,
 }
 
 #[derive(Deserialize)]
 struct EncounterRequest {
-    user_id:      Uuid,
-    position:     String,
-    near_labels:  Vec<String>,
+    user_id:       Uuid,
+    position:      String,
+    near_labels:   Vec<String>,
     interest_text: String,
 }
 
@@ -50,34 +54,34 @@ struct IdentitySummary {
     last_seen:        String,
     position:         String,
     encounter_count:  usize,
-    interest_preview: Vec<f32>, // 最初の8次元だけ表示
+    interest_preview: Vec<f32>,
 }
 
 // --- ハンドラ ---
 
-/// GET /field — 場の状態を返す
+/// GET /field
 async fn get_field(
     State(state): State<Arc<AppState>>,
     Query(q): Query<FieldQuery>,
 ) -> Json<FieldState> {
-    let graph    = state.graph.lock().unwrap();
-    let weights  = &state.weights;
     let near_pct    = q.near_pct.unwrap_or(0.30);
     let horizon_pct = q.horizon_pct.unwrap_or(0.70);
+    let passive     = q.passive.unwrap_or(false);
 
-    // identity が指定されていればそのベクトルを使う
-    let user_interest = if let Some(uid) = q.user_id {
-        match Identity::load(&uid) {
-            Ok(identity) => identity.interest_vec,
-            Err(_) => fallback_interest(&q.interest),
-        }
-    } else {
-        fallback_interest(&q.interest)
-    };
+    // identityロード
+    let mut identity = q.user_id.and_then(|uid| Identity::load(&uid).ok());
+
+    // 関心ベクトル
+    let user_interest = identity.as_ref()
+        .map(|i| i.interest_vec.clone())
+        .unwrap_or_else(|| fallback_interest(&q.interest));
 
     let tau = 86400.0_f64;
-    let mut field = FieldState::new("plaza");
+    let graph    = state.graph.lock().unwrap();
+    let weights  = &state.weights;
+    let activity = state.activity.lock().unwrap();
 
+    // Pass 1: 全エンティティの距離を計算
     let mut scored: Vec<(ObservedEntity, f32, Option<Vec<f32>>)> = graph.graph
         .node_indices()
         .map(|idx| {
@@ -86,42 +90,56 @@ async fn get_field(
             let sem = entity.embedding.as_deref()
                 .map(|emb| semantic_dist(emb, &user_interest))
                 .unwrap_or(0.5);
-            let rel = relational_dist(None);
+
+            // relational: identity の encounter 履歴から計算
+            let rel = identity.as_ref()
+                .map(|id| id.relational_dist(&entity.label))
+                .unwrap_or(1.0);
+
             let act = entity.activity_vec.as_deref()
                 .map(|av| {
                     let u = vec![1.0 / av.len() as f32; av.len()];
                     distance::activity_dist(av, &u)
                 })
                 .unwrap_or(0.5);
+
             let tmp = temporal_dist(entity, tau);
+
             let att = entity.embedding.as_deref()
                 .map(|emb| distance::attention_dist(&user_interest, emb))
                 .unwrap_or(0.5);
 
             let d = compute_distance(sem, rel, act, tmp, att, weights);
-            let emb_clone = entity.embedding.clone();
             (
                 ObservedEntity {
-                    id: entity.id,
-                    label: entity.label.clone(),
-                    distance: d,
+                    id:         entity.id,
+                    label:      entity.label.clone(),
+                    distance:   d,
                     visibility: Default::default(),
                 },
                 d,
-                emb_clone,
+                entity.embedding.clone(),
             )
         })
         .collect();
 
+    // Pass 2: 動的閾値
     let all_distances: Vec<f32> = scored.iter().map(|(_, d, _)| *d).collect();
     let thresholds = DynamicThresholds::from_distances(&all_distances, near_pct, horizon_pct);
+
+    let mut field = FieldState::new("plaza");
     field.thresholds = [thresholds.near, thresholds.horizon];
 
-    for (obs, d, _) in &scored {
+    let mut near_embeddings: Vec<Vec<f32>> = Vec::new();
+
+    for (obs, d, emb) in &scored {
         let mut obs = obs.clone();
         obs.visibility = thresholds.classify(*d);
         match obs.visibility {
-            distance::Visibility::Near    => field.near.push(obs),
+            distance::Visibility::Near => {
+                if let Some(e) = emb { near_embeddings.push(e.clone()); }
+                field.near.push(obs);
+            }
             distance::Visibility::Horizon => field.horizon.push(obs),
             distance::Visibility::Beyond  => {}
         }
@@ -132,36 +150,59 @@ async fn get_field(
     field.presence = field.near.len() + field.horizon.len();
     field.compute_density();
 
+    // Pass 3: drift — horizonの中でグローバル活動が高いものを抽出
+    let mut drift_candidates: Vec<(String, u32)> = field.horizon.iter()
+        .map(|e| {
+            let count = activity.get(&e.label).copied().unwrap_or(0);
+            (e.label.clone(), count)
+        })
+        .filter(|(_, c)| *c > 0)
+        .collect();
+    drift_candidates.sort_by(|a, b| b.1.cmp(&a.1));
+
+    let max_activity = drift_candidates.first().map(|(_, c)| *c).unwrap_or(1) as f32;
+    field.drift = drift_candidates.into_iter()
+        .take(3)
+        .map(|(label, count)| DriftSignal {
+            toward:   label,
+            strength: (count as f32 / max_activity).clamp(0.0, 1.0),
+        })
+        .collect();
+
+    // Pass 4 (optional): passive absorption
+    drop(graph);
+    drop(activity);
+
+    if passive {
+        if let Some(ref mut id) = identity {
+            id.passive_absorb(near_embeddings, "plaza");
+            let _ = id.save();
+        }
+    }
+
     Json(field)
 }
 
-/// POST /identity/new — 新しいidentityを作成
+/// GET /identity/new
 async fn new_identity(
-    Query(q): Query<std::collections::HashMap<String, String>>,
+    Query(q): Query<HashMap<String, String>>,
 ) -> Json<IdentitySummary> {
-    let seed_text = q.get("interest")
-        .map(|s| s.as_str())
+    let seed_text = q.get("interest").map(|s| s.as_str())
         .unwrap_or("curiosity exploration knowledge");
-
-    let seed_vec = embedding::embed(seed_text)
-        .unwrap_or_else(|_| vec![0.0; 384]);
-
+    let seed_vec = embedding::embed(seed_text).unwrap_or_else(|_| vec![0.0; 384]);
     let identity = Identity::new(seed_vec);
-    identity.save().expect("failed to save identity");
-
+    identity.save().expect("save failed");
     Json(to_summary(&identity))
 }
 
-/// GET /identity/:id — identity状態を取得
-async fn get_identity(
-    Path(id): Path<Uuid>,
-) -> Result<Json<IdentitySummary>, String> {
+/// GET /identity/:id
+async fn get_identity(Path(id): Path<Uuid>) -> Result<Json<IdentitySummary>, String> {
     Identity::load(&id)
         .map(|i| Json(to_summary(&i)))
         .map_err(|_| format!("identity {} not found", id))
 }
 
-/// POST /encounter — encounter記録 → identity更新
+/// POST /encounter — 明示的encounter記録 + グローバル活動更新
 async fn post_encounter(
     State(state): State<Arc<AppState>>,
     Json(req): Json<EncounterRequest>,
@@ -169,28 +210,30 @@ async fn post_encounter(
     let mut identity = Identity::load(&req.user_id)
         .map_err(|_| format!("identity {} not found", req.user_id))?;
 
-    // nearラベルに対応するembeddingをグラフから取得
     let graph = state.graph.lock().unwrap();
-    let near_embeddings: Vec<Vec<f32>> = graph.graph
-        .node_indices()
+    let near_embeddings: Vec<Vec<f32>> = graph.graph.node_indices()
         .filter_map(|idx| {
             let e = &graph.graph[idx];
-            if req.near_labels.contains(&e.label) {
-                e.embedding.clone()
-            } else {
-                None
-            }
+            if req.near_labels.contains(&e.label) { e.embedding.clone() } else { None }
         })
         .collect();
+    drop(graph);
+
+    // グローバル活動カウンタを更新 → drift に反映
+    {
+        let mut activity = state.activity.lock().unwrap();
+        for label in &req.near_labels {
+            *activity.entry(label.clone()).or_insert(0) += 1;
+        }
+    }
 
     identity.encounter(
         &req.position,
         req.near_labels,
         near_embeddings,
         req.interest_text,
-        0.85, // alpha: ゆっくり変化
+        0.85,
     );
-
     identity.save().map_err(|e| e.to_string())?;
     Ok(Json(to_summary(&identity)))
 }
@@ -198,8 +241,7 @@ async fn post_encounter(
 // --- ユーティリティ ---
 
 fn fallback_interest(interest: &Option<String>) -> Vec<f32> {
-    let text = interest.as_deref()
-        .unwrap_or("curiosity exploration knowledge");
+    let text = interest.as_deref().unwrap_or("curiosity exploration knowledge");
     embedding::embed(text).unwrap_or_else(|_| vec![0.0; 384])
 }
 
@@ -235,10 +277,8 @@ async fn main() {
         ("music_history",       EntityKind::Data),
         ("live_coding_session", EntityKind::Event),
     ];
-
     let texts: Vec<&str> = labels.iter().map(|(l, _)| *l).collect();
     let embeddings = embedding::embed_batch(texts).expect("embed failed");
-
     for ((label, kind), emb) in labels.into_iter().zip(embeddings) {
         let mut entity = Entity::new(kind, label);
         entity.embedding = Some(emb);
@@ -246,15 +286,16 @@ async fn main() {
     }
 
     let state = Arc::new(AppState {
-        graph:   Mutex::new(space),
-        weights: DistanceWeights::default(),
+        graph:    Mutex::new(space),
+        weights:  DistanceWeights::default(),
+        activity: Mutex::new(HashMap::new()),
     });
 
     let app = Router::new()
-        .route("/field",           get(get_field))
-        .route("/identity/new",    get(new_identity))
-        .route("/identity/:id",    get(get_identity))
-        .route("/encounter",       post(post_encounter))
+        .route("/field",        get(get_field))
+        .route("/identity/new", get(new_identity))
+        .route("/identity/:id", get(get_identity))
+        .route("/encounter",    post(post_encounter))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:7331").await.unwrap();
