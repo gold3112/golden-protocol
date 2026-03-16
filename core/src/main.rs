@@ -725,12 +725,14 @@ async fn post_encounter(
     // ユーザーの関心ベクトルを取得 (encounter後のblend前)
     let user_interest = identity.interest_vec.clone();
 
-    // near エンティティの activity_vec をユーザーの関心で更新
-    // alpha=0.90: encounter よりやや遅い変化
+    // near エンティティの activity_vec をユーザーの関心で更新して DB に保存
     {
         let mut graph = state.graph.lock().unwrap();
         for id in &near_ids {
             graph.update_entity_activity(id, &user_interest, 0.90);
+            if let Some(&idx) = graph.index_map.get(id) {
+                let _ = identity::save_entity(&graph.graph[idx]);
+            }
         }
     }
 
@@ -978,6 +980,44 @@ async fn main() {
                 let removed = before - users.len();
                 if removed > 0 {
                     tracing::info!("presence cleanup: removed {} stale users ({} remain)", removed, users.len());
+                }
+            }
+        });
+    }
+
+    // エンティティ自然減衰タスク (10分ごと)
+    // activity_vec を embedding（素の意味）に向かって静かに戻す
+    // alpha=0.995: 約230回 (38時間) で半減
+    {
+        let state_c = Arc::clone(&state);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(600));
+            loop {
+                interval.tick().await;
+                let mut graph = state_c.graph.lock().unwrap();
+                let mut decayed = 0usize;
+                for idx in graph.graph.node_indices() {
+                    let entity = &mut graph.graph[idx];
+                    // embedding が基準 — activity が離れているほど引き戻す力が強い
+                    if let (Some(av), Some(emb)) = (entity.activity_vec.as_mut(), entity.embedding.as_ref()) {
+                        if av.len() == emb.len() {
+                            for (a, e) in av.iter_mut().zip(emb.iter()) {
+                                *a = 0.995 * *a + 0.005 * e;
+                            }
+                            decayed += 1;
+                        }
+                    }
+                }
+                // 変化したエンティティをまとめて DB 保存
+                let to_save: Vec<_> = graph.graph.node_indices()
+                    .map(|i| graph.graph[i].clone())
+                    .collect();
+                drop(graph);
+                for entity in &to_save {
+                    let _ = identity::save_entity(entity);
+                }
+                if decayed > 0 {
+                    tracing::info!("decay tick: {} entities drifted back toward embedding", decayed);
                 }
             }
         });
