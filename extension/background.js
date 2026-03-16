@@ -1,7 +1,7 @@
 // background.js — SSE 接続管理 + identity 永続化
 // Service Worker として動作する
 
-const SERVER = 'http://localhost:7331';
+const SERVER = 'https://space.gold3112.online';
 const RECONNECT_DELAY = 3000; // ms
 
 let eventSource  = null;

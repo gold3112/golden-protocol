@@ -11,8 +11,8 @@
   ],
 
   "host_permissions": [
-    "http://localhost:7331/*",
-    "http://192.168.1.5:7331/*"
+    "https://space.gold3112.online/*",
+    "http://localhost:7331/*"
   ],
 
   "background": {
