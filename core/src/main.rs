@@ -55,6 +55,22 @@ struct FieldQuery {
 }
 
 #[derive(Deserialize)]
+struct EntityRequest {
+    label: String,
+    kind:  Option<EntityKind>,
+    /// embedding のシードテキスト。省略時は label をそのまま使う
+    text:  Option<String>,
+}
+
+#[derive(Serialize)]
+struct EntitySummary {
+    id:          Uuid,
+    label:       String,
+    kind:        String,
+    last_active: String,
+}
+
+#[derive(Deserialize)]
 struct EncounterRequest {
     user_id:       Uuid,
     position:      String,
@@ -309,6 +325,62 @@ async fn get_identity(Path(id): Path<Uuid>) -> Result<Json<IdentitySummary>, Str
         .map_err(|_| format!("identity {} not found", id))
 }
 
+/// GET /entities — 現在の空間にいるエンティティ一覧
+async fn get_entities(
+    State(state): State<Arc<AppState>>,
+) -> Json<Vec<EntitySummary>> {
+    let graph = state.graph.lock().unwrap();
+    let list = graph.graph.node_indices()
+        .map(|idx| {
+            let e = &graph.graph[idx];
+            EntitySummary {
+                id:          e.id,
+                label:       e.label.clone(),
+                kind:        format!("{:?}", e.kind),
+                last_active: e.last_active.to_rfc3339(),
+            }
+        })
+        .collect();
+    Json(list)
+}
+
+/// POST /entity — エンティティを動的に追加
+async fn post_entity(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<EntityRequest>,
+) -> Result<Json<EntitySummary>, String> {
+    let text = req.text.as_deref().unwrap_or(&req.label);
+    let emb  = embedding::embed(text).map_err(|e| e.to_string())?;
+    let kind = req.kind.unwrap_or(EntityKind::Data);
+
+    let mut entity    = Entity::new(kind, &req.label);
+    entity.embedding  = Some(emb);
+    let summary = EntitySummary {
+        id:          entity.id,
+        label:       entity.label.clone(),
+        kind:        format!("{:?}", entity.kind),
+        last_active: entity.last_active.to_rfc3339(),
+    };
+
+    state.graph.lock().unwrap().add_entity(entity);
+    tracing::info!("entity added: {}", req.label);
+    Ok(Json(summary))
+}
+
+/// DELETE /entity/:id — エンティティを削除
+async fn delete_entity(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, String> {
+    let removed = state.graph.lock().unwrap().remove_entity(&id);
+    if removed {
+        tracing::info!("entity removed: {}", id);
+        Ok(Json(serde_json::json!({ "removed": id })))
+    } else {
+        Err(format!("entity {} not found", id))
+    }
+}
+
 /// GET /presence — 現在の接続ユーザー一覧
 async fn get_presence(
     State(state): State<Arc<AppState>>,
@@ -437,6 +509,8 @@ async fn main() {
         .route("/field",         get(get_field))
         .route("/field/stream",  get(stream_field))
         .route("/presence",      get(get_presence))
+        .route("/entities",      get(get_entities).post(post_entity))
+        .route("/entity/:id",    axum::routing::delete(delete_entity))
         .route("/identity/new",  get(new_identity))
         .route("/identity/:id",  get(get_identity))
         .route("/encounter",     post(post_encounter))

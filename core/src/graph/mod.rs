@@ -66,6 +66,19 @@ impl SpaceGraph {
         idx
     }
 
+    pub fn remove_entity(&mut self, id: &Uuid) -> bool {
+        if let Some(idx) = self.index_map.remove(id) {
+            self.graph.remove_node(idx);
+            // remove_node swaps the last node into the removed slot — rebuild index_map
+            self.index_map = self.graph.node_indices()
+                .map(|i| (self.graph[i].id, i))
+                .collect();
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn add_relation(&mut self, from: Uuid, to: Uuid, weight: f32) {
         if let (Some(&a), Some(&b)) = (self.index_map.get(&from), self.index_map.get(&to)) {
             self.graph.add_edge(a, b, Relation { weight });

@@ -311,8 +311,8 @@ nearとの出会いを明示的に記録。関心ベクトルを更新 (alpha=0.
 
 ### 未実装
 
+- [x] **空間が育つ仕組み** — `POST /entities` でエンティティを動的追加、`DELETE /entity/:id` で削除
 - [ ] **activity vector** — エンティティの活動状態のリアルタイム更新
-- [ ] **空間が育つ仕組み** — エンティティが動的に増減しない
 - [ ] **identity の永続化改善** — ローカルファイルからDBへ
 - [ ] **インターネット公開** — LAN外からアクセス可能にする
 
@@ -344,4 +344,29 @@ SSEストリーム。2秒ごとに `field` イベントとして field state を
 
 ---
 
-*最終更新: 2026-03-16 (prototype v2 — multi-user presence + SSE)*
+#### `GET /entities`
+
+現在の空間にいる全エンティティ一覧を返す。
+
+#### `POST /entities`
+
+エンティティを動的に追加する。
+
+```json
+{
+  "label": "rust_study_group",
+  "kind":  "Event",
+  "text":  "rust programming systems language"
+}
+```
+
+`kind`: `Human` / `AI` / `Service` / `Stream` / `Event` / `Data`（省略時 `Data`）
+`text`: embedding のシードテキスト。省略時は `label` をそのまま使う。
+
+#### `DELETE /entity/:id`
+
+エンティティを空間から除去する。
+
+---
+
+*最終更新: 2026-03-16 (prototype v3 — dynamic entities)*
