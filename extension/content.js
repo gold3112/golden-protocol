@@ -1,10 +1,9 @@
-// content.js — ページテキストを抽出して chrome.storage.session に直接書く
+// content.js — chrome API が使えない iframe 等でも安全に動作する
 
 function extractPageText() {
   const title = document.title || '';
   const metaDesc = document.querySelector('meta[name="description"]');
   const description = metaDesc ? metaDesc.getAttribute('content') || '' : '';
-
   const skip = new Set(['SCRIPT', 'STYLE', 'NAV', 'FOOTER', 'HEADER', 'ASIDE']);
   function walkText(node) {
     if (skip.has(node.nodeName)) return '';
@@ -16,10 +15,13 @@ function extractPageText() {
 }
 
 function save() {
+  // chrome API が使えない環境 (一部 iframe 等) では何もしない
+  if (typeof chrome === 'undefined' || !chrome.storage?.session) return;
   const text = extractPageText();
   if (!text) return;
-  // background を経由せず直接 session storage に書く
-  chrome.storage.session.set({ pageText: text, pageUrl: location.href });
+  try {
+    chrome.storage.session.set({ pageText: text, pageUrl: location.href });
+  } catch (_) {}
 }
 
 save();

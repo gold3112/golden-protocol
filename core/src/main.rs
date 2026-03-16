@@ -292,8 +292,8 @@ static LANDING_HTML: &str = r#"<!DOCTYPE html>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
-  background: #07070d;
-  color: #b0b0c8;
+  background: #0d0d18;
+  color: #c8c8e0;
   font-family: 'SF Mono','Fira Code','Menlo',monospace;
   font-size: 13px;
   min-height: 100vh;
@@ -309,23 +309,23 @@ body {
   font-size: 10px;
   letter-spacing: 0.2em;
   text-transform: uppercase;
-  color: #2a2a40;
+  color: #555570;
   margin-bottom: 16px;
 }
 h1 {
   font-size: 22px;
   font-weight: normal;
-  color: #d8d8f0;
+  color: #e8e8ff;
   line-height: 1.5;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
 }
-#sub { color: #404058; line-height: 1.8; }
+#sub { color: #8080a8; line-height: 1.8; }
 #field { margin-bottom: 48px; }
 .label {
   font-size: 9px;
   letter-spacing: 0.2em;
   text-transform: uppercase;
-  color: #1e1e30;
+  color: #484868;
   margin-bottom: 10px;
 }
 #position-line {
@@ -334,33 +334,33 @@ h1 {
   gap: 16px;
   margin-bottom: 28px;
 }
-#position { font-size: 16px; color: #7070c0; }
-#meta     { font-size: 10px; color: #252535; }
+#position { font-size: 16px; color: #9090d8; }
+#meta     { font-size: 10px; color: #484860; }
 .entity-list { list-style: none; margin-bottom: 20px; }
 .near-item {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 5px 0;
-  border-bottom: 1px solid #0c0c18;
+  padding: 6px 0;
+  border-bottom: 1px solid #181828;
 }
 .near-dot {
   width: 5px; height: 5px;
   border-radius: 50%;
-  background: #4444a0;
+  background: #6868c0;
   flex-shrink: 0;
 }
-.near-label { color: #b0b0e0; flex: 1; }
+.near-label { color: #c0c0e8; flex: 1; }
 .near-bar {
   width: 80px; height: 2px;
-  background: #111120;
+  background: #1e1e32;
   border-radius: 1px;
   position: relative;
 }
 .near-bar-fill {
   position: absolute;
   left: 0; top: 0; bottom: 0;
-  background: #3a3a90;
+  background: #5858b8;
   border-radius: 1px;
   transition: width 1.5s ease;
 }
@@ -368,37 +368,37 @@ h1 {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 4px 0;
-  color: #2a2a3a;
+  padding: 5px 0;
+  color: #505068;
 }
 .horizon-dot {
   width: 3px; height: 3px;
   border-radius: 50%;
-  background: #1a1a28;
+  background: #303048;
   flex-shrink: 0;
 }
-#drift-line { margin-top: 16px; color: #553311; font-size: 11px; min-height: 18px; }
+#drift-line { margin-top: 16px; color: #a06030; font-size: 11px; min-height: 18px; }
 #status-line {
   font-size: 10px;
-  color: #1a1a28;
+  color: #383850;
   margin-top: 24px;
   display: flex;
   gap: 20px;
 }
-#install { border-top: 1px solid #0e0e1c; padding-top: 32px; }
-#install p { color: #2a2a3a; line-height: 1.8; margin-bottom: 20px; }
+#install { border-top: 1px solid #181828; padding-top: 32px; }
+#install p { color: #606080; line-height: 1.8; margin-bottom: 20px; }
 .cta {
   display: inline-block;
   padding: 8px 20px;
-  border: 1px solid #222238;
-  color: #555580;
+  border: 1px solid #383868;
+  color: #7878b8;
   text-decoration: none;
   font-size: 11px;
   letter-spacing: 0.1em;
   font-family: inherit;
   transition: all 0.2s;
 }
-.cta:hover { border-color: #4444a0; color: #9090c0; background: #0c0c1a; }
+.cta:hover { border-color: #6060b0; color: #a0a0d8; background: #111122; }
 </style>
 </head>
 <body>
