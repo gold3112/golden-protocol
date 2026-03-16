@@ -67,6 +67,7 @@ struct FieldQuery {
     horizon_pct: Option<f32>,
     passive:     Option<bool>,
     name:        Option<String>,
+    format:      Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -197,6 +198,7 @@ fn compute_field_state(state: &AppState, q: &FieldQuery) -> FieldState {
                     label:      entity.label.clone(),
                     distance:   d,
                     visibility: Default::default(),
+                    components: Some([sem, rel, act, tmp, att]),
                 },
                 d,
                 entity.embedding.clone(),
@@ -217,6 +219,7 @@ fn compute_field_state(state: &AppState, q: &FieldQuery) -> FieldState {
                 label:      format!("wanderer_{}", short_id),
                 distance:   d,
                 visibility: Default::default(),
+                components: Some([sem, 0.5, 0.5, 0.0, att]),
             },
             d,
             Some(user.interest_vec.clone()),
@@ -389,6 +392,7 @@ canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
 #footer-link { pointer-events: auto; }
 #footer-link a { font-size: 10px; color: #282848; text-decoration: none; border-bottom: 1px solid #202038; letter-spacing: 0.08em; }
 #footer-link a:hover { color: #6060a0; border-color: #4040a0; }
+#cli-hint { font-size: 9px; color: #1c1c2e; letter-spacing: 0.06em; margin-top: 5px; font-family: inherit; }
 
 /* --- entity panel --- */
 #panel {
@@ -484,6 +488,7 @@ canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
     <div id="drift"></div>
     <div id="footer-right">
       <div id="footer-link"><a href="https://github.com/gold3112/golden-protocol" target="_blank">source / extension →</a></div>
+      <div id="cli-hint">curl space.gold3112.online/field?interest=...&amp;format=text</div>
     </div>
   </div>
 </div>
@@ -1040,8 +1045,77 @@ animate();
 async fn get_field(
     State(state): State<Arc<AppState>>,
     Query(q): Query<FieldQuery>,
-) -> Json<FieldState> {
-    Json(compute_field_state(&state, &q))
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let field = compute_field_state(&state, &q);
+    if q.format.as_deref() == Some("text") {
+        (
+            [("Content-Type", "text/plain; charset=utf-8")],
+            render_field_text(&field),
+        ).into_response()
+    } else {
+        Json(field).into_response()
+    }
+}
+
+fn render_field_text(field: &FieldState) -> String {
+    let w = "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━";
+    let d = "  ─────────────────────────────────────────";
+    let mut o = String::new();
+
+    o.push_str(&format!("{}\n  GOLDEN PROTOCOL  ·  field state\n{}\n\n", w, w));
+    o.push_str(&format!("  position  ·  {}\n", field.position));
+    o.push_str(&format!("  presence  ·  {}\n", field.presence));
+    o.push_str(&format!("  density   ·  {:.2}\n", field.density));
+    o.push_str(&format!("  time      ·  {}\n\n", field.timestamp.format("%Y-%m-%dT%H:%M:%SZ")));
+
+    if !field.near.is_empty() {
+        o.push_str("  NEAR\n");
+        o.push_str(&format!("{}\n", d));
+        for e in &field.near {
+            let lbl = if e.label.len() > 32 { format!("{}…", &e.label[..31]) } else { e.label.clone() };
+            if let Some(c) = e.components {
+                o.push_str(&format!("  ● {:<34} {:.2}  s:{:.2} r:{:.2} a:{:.2} t:{:.2} u:{:.2}\n",
+                    lbl, e.distance, c[0], c[1], c[2], c[3], c[4]));
+            } else {
+                o.push_str(&format!("  ● {:<34} {:.2}\n", lbl, e.distance));
+            }
+        }
+        o.push('\n');
+    }
+
+    if !field.horizon.is_empty() {
+        o.push_str("  HORIZON\n");
+        o.push_str(&format!("{}\n", d));
+        for e in field.horizon.iter().take(6) {
+            let lbl = if e.label.len() > 32 { format!("{}…", &e.label[..31]) } else { e.label.clone() };
+            o.push_str(&format!("  · {:<34} {:.2}\n", lbl, e.distance));
+        }
+        if field.horizon.len() > 6 {
+            o.push_str(&format!("  … and {} more beyond\n", field.horizon.len() - 6));
+        }
+        o.push('\n');
+    }
+
+    if !field.drift.is_empty() {
+        o.push_str(&format!("  drift  →  {} ({:.2})\n\n", field.drift[0].toward, field.drift[0].strength));
+    }
+
+    if !field.messages.is_empty() {
+        o.push_str("  VOICES\n");
+        o.push_str(&format!("{}\n", d));
+        for m in &field.messages {
+            let txt = if m.text.len() > 52 { format!("{}…", &m.text[..51]) } else { m.text.clone() };
+            o.push_str(&format!("  {}  ·  \"{}\"\n", m.author, txt));
+        }
+        o.push('\n');
+    }
+
+    o.push_str(&format!("{}\n", w));
+    o.push_str("  s=semantic r=relational a=activity t=temporal u=attention\n");
+    o.push_str("  curl \"https://space.gold3112.online/field?interest=YOUR_THOUGHT&format=text\"\n");
+    o.push_str(&format!("{}\n", w));
+    o
 }
 
 /// GET /field/stream — SSE: field stateをリアルタイムにプッシュ

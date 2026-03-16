@@ -18,6 +18,9 @@ pub struct ObservedEntity {
     pub label: String,
     pub distance: f32,
     pub visibility: Visibility,
+    /// 距離の5成分 [semantic, relational, activity, temporal, attention]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub components: Option<[f32; 5]>,
 }
 
 impl Default for ObservedEntity {
@@ -27,6 +30,7 @@ impl Default for ObservedEntity {
             label: String::new(),
             distance: 1.0,
             visibility: Visibility::Beyond,
+            components: None,
         }
     }
 }
