@@ -56,6 +56,9 @@ pub fn init_db() -> Result<()> {
         CREATE INDEX IF NOT EXISTS messages_time  ON messages(created_at);
     ")?;
     DB.set(Mutex::new(conn)).ok();
+    // migration: add expires_at column if not present (ignore error if already exists)
+    let _ = DB.get().expect("DB not initialized").lock().unwrap()
+        .execute("ALTER TABLE entities ADD COLUMN expires_at TEXT", []);
     migrate_json_files();
     Ok(())
 }
@@ -212,9 +215,10 @@ pub fn save_entity(entity: &Entity) -> Result<()> {
     let emb  = serde_json::to_string(&entity.embedding)?;
     let act  = entity.activity_vec.as_ref().map(|v| serde_json::to_string(v)).transpose()?;
     let kind = format!("{:?}", entity.kind);
+    let exp  = entity.expires_at.map(|t| t.to_rfc3339());
     db().execute(
-        "INSERT OR REPLACE INTO entities (id, label, kind, embedding, activity_vec, last_active)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT OR REPLACE INTO entities (id, label, kind, embedding, activity_vec, last_active, expires_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             entity.id.to_string(),
             entity.label,
@@ -222,6 +226,7 @@ pub fn save_entity(entity: &Entity) -> Result<()> {
             emb,
             act,
             entity.last_active.to_rfc3339(),
+            exp,
         ],
     )?;
     Ok(())
@@ -235,7 +240,7 @@ pub fn delete_entity_db(id: &Uuid) -> Result<()> {
 pub fn load_all_entities() -> Vec<Entity> {
     let conn = db();
     let mut stmt = match conn.prepare(
-        "SELECT id, label, kind, embedding, activity_vec, last_active FROM entities"
+        "SELECT id, label, kind, embedding, activity_vec, last_active, expires_at FROM entities"
     ) {
         Ok(s) => s,
         Err(_) => return vec![],
@@ -249,13 +254,14 @@ pub fn load_all_entities() -> Vec<Entity> {
             row.get::<_, String>(3)?,
             row.get::<_, Option<String>>(4)?,
             row.get::<_, String>(5)?,
+            row.get::<_, Option<String>>(6)?,
         ))
     }) {
         Ok(r) => r,
         Err(_) => return vec![],
     };
     rows.filter_map(|r| r.ok())
-    .filter_map(|(id, label, kind, emb, act, last_active)| {
+    .filter_map(|(id, label, kind, emb, act, last_active, exp)| {
         let id  = id.parse::<Uuid>().ok()?;
         let kind = match kind.as_str() {
             "Human"   => EntityKind::Human,
@@ -268,8 +274,9 @@ pub fn load_all_entities() -> Vec<Entity> {
         let embedding:    Option<Vec<f32>> = serde_json::from_str(&emb).ok();
         let activity_vec: Option<Vec<f32>> = act.and_then(|a| serde_json::from_str(&a).ok());
         let last_active = last_active.parse::<DateTime<Utc>>().unwrap_or_else(|_| Utc::now());
+        let expires_at: Option<DateTime<Utc>> = exp.and_then(|s| s.parse().ok());
 
-        Some(Entity { id, kind, label, embedding, activity_vec, last_active })
+        Some(Entity { id, kind, label, embedding, activity_vec, last_active, expires_at })
     })
     .collect()
 }

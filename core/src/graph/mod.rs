@@ -24,6 +24,7 @@ pub struct Entity {
     pub embedding: Option<Vec<f32>>,       // 意味ベクトル
     pub activity_vec: Option<Vec<f32>>,    // 活動ベクトル
     pub last_active: DateTime<Utc>,
+    pub expires_at: Option<DateTime<Utc>>,
 }
 
 impl Entity {
@@ -35,6 +36,7 @@ impl Entity {
             embedding: None,
             activity_vec: None,
             last_active: Utc::now(),
+            expires_at: None,
         }
     }
 }

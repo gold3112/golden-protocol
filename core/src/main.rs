@@ -51,6 +51,7 @@ struct AppState {
 #[derive(Clone)]
 struct UserPresence {
     id:           Uuid,
+    name:         String,
     interest_vec: Vec<f32>,
     position:     String,
     last_seen:    DateTime<Utc>,
@@ -65,14 +66,16 @@ struct FieldQuery {
     near_pct:    Option<f32>,
     horizon_pct: Option<f32>,
     passive:     Option<bool>,
+    name:        Option<String>,
 }
 
 #[derive(Deserialize)]
 struct EntityRequest {
-    label: String,
-    kind:  Option<EntityKind>,
+    label:          String,
+    kind:           Option<EntityKind>,
     /// embedding のシードテキスト。省略時は label をそのまま使う
-    text:  Option<String>,
+    text:           Option<String>,
+    duration_hours: Option<f64>,
 }
 
 #[derive(Serialize)]
@@ -81,6 +84,7 @@ struct EntitySummary {
     label:       String,
     kind:        String,
     last_active: String,
+    expires_at:  Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -158,6 +162,10 @@ fn compute_field_state(state: &AppState, q: &FieldQuery) -> FieldState {
     // Pass 1: グラフエンティティの距離計算
     let mut scored: Vec<(ObservedEntity, f32, Option<Vec<f32>>)> = graph.graph
         .node_indices()
+        .filter(|idx| {
+            let e = &graph.graph[*idx];
+            e.expires_at.map_or(true, |exp| exp > Utc::now())
+        })
         .map(|idx| {
             let entity = &graph.graph[idx];
 
@@ -437,6 +445,8 @@ canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
   white-space: nowrap;
 }
 #hint.hidden { opacity: 0; }
+/* event countdown */
+.evt-time { font-size: 9px; color: rgba(255,150,70,0.7); letter-spacing: 0.08em; }
 </style>
 </head>
 <body>
@@ -449,6 +459,7 @@ canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
     <div id="entry-q">What are you thinking about?</div>
     <div id="entry-sub">The space will form around you.<br>Others are already here.</div>
     <input id="entry-input" type="text" placeholder="type anything..." autocomplete="off" spellcheck="false">
+    <input id="entry-name" type="text" placeholder="your name  (optional)" autocomplete="off" spellcheck="false" style="width:100%;background:transparent;border:none;border-bottom:1px solid #232340;color:#8080b0;font-family:inherit;font-size:12px;padding:8px 0;outline:none;text-align:center;letter-spacing:0.05em;margin-bottom:24px;">
     <div id="entry-actions">
       <button id="entry-enter">enter →</button>
       <button id="entry-skip">just wander</button>
@@ -534,6 +545,8 @@ const KIND_COLOR = {
 
 // birth ripple queue: { x, y, t, r, g, b }
 const births = [];
+const bursts = []; // entity expiry burst
+let prevEntityLabels = new Set();
 
 function updateNodes(field, allEntities) {
   const distMap = {};
@@ -553,6 +566,7 @@ function updateNodes(field, allEntities) {
     if (!nodes[e.label]) {
       nodes[e.label] = {
         x: tx, y: ty, b: 0, kind: e.kind, label: e.label,
+        expiresAt: e.expires_at || null,
         // organic drift params — unique per entity
         driftPhase: Math.random() * Math.PI * 2,
         driftFreq:  0.28 + Math.random() * 0.35,
@@ -566,6 +580,7 @@ function updateNodes(field, allEntities) {
     }
     const n = nodes[e.label];
     n.tx = tx; n.ty = ty; n.tb = tb; n.kind = e.kind;
+    n.expiresAt = e.expires_at || null;
   });
 }
 
@@ -708,6 +723,7 @@ function animate() {
 
   drawRings();
   drawBirths();
+  drawBursts();
 
   Object.values(nodes).forEach(n => {
     if (n.tx !== undefined) { n.x = lerp(n.x, n.tx, 0.035); n.y = lerp(n.y, n.ty, 0.035); }
@@ -735,10 +751,21 @@ function drawNode(n) {
   const pulse  = 1 + (isHovered ? 0.3 : 0.10) * Math.sin(clock * 1.4 + labelAngle(n.label));
   const radius = (2 + b * 5) * pulse * (isHovered ? 1.4 : 1);
 
+  let urgency = 0;
+  if (n.expiresAt) {
+    const remaining = new Date(n.expiresAt) - Date.now();
+    if (remaining <= 0) {
+      urgency = 1;
+    } else if (remaining < 7200000) { // 2 hours
+      urgency = 1 - remaining / 7200000;
+    }
+  }
+  const urgencyBoost = urgency * 0.6;
+
   if (b > 0.2 || isHovered) {
     const glowR = isHovered ? radius * 10 : radius * 7;
     const gr = ctx.createRadialGradient(n.rx, n.ry, 0, n.rx, n.ry, glowR);
-    gr.addColorStop(0, `rgba(${r},${g},${bl},${isHovered ? 0.4 : b * 0.25})`);
+    gr.addColorStop(0, `rgba(${r},${g},${bl},${(isHovered ? 0.4 : b * 0.25) * (1 + urgencyBoost)})`);
     gr.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = gr;
     ctx.beginPath();
@@ -773,6 +800,18 @@ function drawNode(n) {
       }
     }
   }
+
+  if (n.expiresAt && n.b > 0.3) {
+    const remaining = new Date(n.expiresAt) - Date.now();
+    if (remaining > 0 && remaining < 6 * 3600000) {
+      const mins = Math.floor(remaining / 60000);
+      const timeStr = mins >= 60 ? Math.floor(mins/60) + 'h ' + (mins%60) + 'm' : mins + 'm';
+      const urgA = Math.max(0.3, urgency) * n.b;
+      ctx.fillStyle = `rgba(255,150,70,${urgA * 0.8})`;
+      ctx.font = '9px "SF Mono",monospace';
+      ctx.fillText('◈ ' + timeStr, n.rx + radius + 5, n.ry + 30);
+    }
+  }
 }
 
 // birth ripple — expanding ring when entity enters the field
@@ -791,6 +830,26 @@ function drawBirths() {
     ctx.beginPath();
     ctx.arc(b.x, b.y, radius, 0, Math.PI * 2);
     ctx.stroke();
+  }
+}
+
+function drawBursts() {
+  for (let i = bursts.length - 1; i >= 0; i--) {
+    const b = bursts[i];
+    b.t += 0.016;
+    const p = b.t / 1.0;
+    if (p > 1) { bursts.splice(i, 1); continue; }
+    for (let ring = 0; ring < 3; ring++) {
+      const rp = Math.min(1, p + ring * 0.18);
+      const radius = rp * 100;
+      const alpha = (1 - rp) * 0.65 / (ring + 1);
+      ctx.strokeStyle = `rgba(${b.r},${b.g},${b.b},${alpha})`;
+      ctx.lineWidth = 1.5 - ring * 0.4;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, radius, 0, Math.PI * 2);
+      ctx.stroke();
+    }
   }
 }
 
@@ -849,9 +908,10 @@ function updateWanderers(users) {
     if (!node) return;
     const [ox, oy] = idOffset(u.id);
     const tx = (node.rx || node.x) + ox, ty = (node.ry || node.y) + oy;
-    if (!wanderers[u.id]) wanderers[u.id] = { x: tx, y: ty, phase: Math.random() * Math.PI * 2 };
+    if (!wanderers[u.id]) wanderers[u.id] = { x: tx, y: ty, phase: Math.random() * Math.PI * 2, name: u.name || null };
     wanderers[u.id].tx = tx;
     wanderers[u.id].ty = ty;
+    wanderers[u.id].name = u.name || null;
   });
   Object.keys(wanderers).forEach(id => { if (!seen.has(id)) delete wanderers[id]; });
 }
@@ -872,6 +932,11 @@ function drawWanderers() {
     ctx.beginPath();
     ctx.arc(w.x, w.y, r, 0, Math.PI * 2);
     ctx.fill();
+    if (w.name) {
+      ctx.fillStyle = `rgba(100,220,220,${0.5 + 0.2 * Math.sin(clock * 1.8 + w.phase)})`;
+      ctx.font = '9px "SF Mono",monospace';
+      ctx.fillText(w.name, w.x + r * 2 + 4, w.y + 3);
+    }
   });
 }
 
@@ -881,6 +946,11 @@ let interest = sessionStorage.getItem('gp_interest') || '';
 function enterSpace(text) {
   interest = text.trim() || 'curiosity exploration wandering';
   sessionStorage.setItem('gp_interest', interest);
+  const nameInput = document.getElementById('entry-name');
+  if (nameInput && nameInput.value.trim()) {
+    authorName = nameInput.value.trim().slice(0, 24);
+    sessionStorage.setItem('gp_author', authorName);
+  }
   const el = document.getElementById('entry');
   el.classList.add('hidden');
   setTimeout(() => el.style.display = 'none', 900);
@@ -903,7 +973,18 @@ document.getElementById('entry-skip').addEventListener('click', () => {
 let allEntities = [], pollStarted = false;
 
 async function fetchEntities() {
-  try { allEntities = await fetch('/entities').then(r => r.json()); } catch {}
+  try {
+    const newEntities = await fetch('/entities').then(r => r.json());
+    const newLabels = new Set(newEntities.map(e => e.label));
+    prevEntityLabels.forEach(label => {
+      if (!newLabels.has(label) && nodes[label] && nodes[label].b > 0.1) {
+        const [cr, cg, cb] = KIND_COLOR[nodes[label].kind] || [140, 140, 190];
+        bursts.push({ x: nodes[label].rx || nodes[label].x, y: nodes[label].ry || nodes[label].y, t: 0, r: cr, g: cg, b: cb });
+      }
+    });
+    prevEntityLabels = newLabels;
+    allEntities = newEntities;
+  } catch {}
 }
 
 async function fetchPresence() {
@@ -916,7 +997,8 @@ async function fetchPresence() {
 async function fetchField() {
   try {
     const enc = encodeURIComponent(interest || 'curiosity exploration wandering');
-    const f   = await fetch('/field?interest=' + enc).then(r => r.json());
+    const nameParam = authorName ? '&name=' + encodeURIComponent(authorName) : '';
+    const f   = await fetch('/field?interest=' + enc + nameParam).then(r => r.json());
     updateNodes(f, allEntities);
     updateSelfGravity(f);
     updateMessages(f);
@@ -980,6 +1062,7 @@ async fn stream_field(
         let mut users = state.connected_users.lock().unwrap();
         users.insert(user_id, UserPresence {
             id:           user_id,
+            name:         q.name.clone().unwrap_or_default(),
             interest_vec: interest_vec.clone(),
             position:     "plaza".to_string(),
             last_seen:    Utc::now(),
@@ -1049,6 +1132,7 @@ async fn get_entities(
                 label:       e.label.clone(),
                 kind:        format!("{:?}", e.kind),
                 last_active: e.last_active.to_rfc3339(),
+                expires_at:  e.expires_at.map(|t| t.to_rfc3339()),
             }
         })
         .collect();
@@ -1067,11 +1151,15 @@ async fn post_entity(
     let mut entity      = Entity::new(kind, &req.label);
     entity.activity_vec = Some(emb.clone());
     entity.embedding    = Some(emb);
+    if let Some(h) = req.duration_hours {
+        entity.expires_at = Some(Utc::now() + chrono::Duration::seconds((h * 3600.0) as i64));
+    }
     let summary = EntitySummary {
         id:          entity.id,
         label:       entity.label.clone(),
         kind:        format!("{:?}", entity.kind),
         last_active: entity.last_active.to_rfc3339(),
+        expires_at:  entity.expires_at.map(|t| t.to_rfc3339()),
     };
 
     let _ = identity::save_entity(&entity);
@@ -1102,8 +1190,9 @@ async fn get_presence(
     let users = state.connected_users.lock().unwrap();
     let list: Vec<serde_json::Value> = users.values().map(|u| {
         serde_json::json!({
-            "id":       u.id,
-            "position": u.position,
+            "id":        u.id,
+            "name":      u.name,
+            "position":  u.position,
             "last_seen": u.last_seen.to_rfc3339(),
         })
     }).collect();
@@ -1794,6 +1883,32 @@ async fn main() {
                     if added > 0 {
                         tracing::info!("rss auto-ingest: +{} from {}", added, url);
                     }
+                }
+            }
+        });
+    }
+
+    // 期限切れエンティティの自動削除タスク (1分ごと)
+    {
+        let state_c = Arc::clone(&state);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(60));
+            loop {
+                interval.tick().await;
+                let now = Utc::now();
+                let expired: Vec<Uuid> = {
+                    let graph = state_c.graph.lock().unwrap();
+                    graph.graph.node_indices()
+                        .filter_map(|idx| {
+                            let e = &graph.graph[idx];
+                            if e.expires_at.map_or(false, |exp| exp <= now) { Some(e.id) } else { None }
+                        })
+                        .collect()
+                };
+                for id in expired {
+                    state_c.graph.lock().unwrap().remove_entity(&id);
+                    let _ = identity::delete_entity_db(&id);
+                    tracing::info!("event expired and removed: {}", id);
                 }
             }
         });
