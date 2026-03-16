@@ -18,3 +18,8 @@ __pycache__/
 identities.db
 identities.db-shm
 identities.db-wal
+
+# private vision documents
+vision.txt
+vision2.txt
+for_claude.txt
