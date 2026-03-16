@@ -330,6 +330,7 @@ canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
   background: rgba(6,6,15,0.82);
   z-index: 100;
   transition: opacity 1.2s ease;
+  cursor: default;
 }
 #entry.hidden { opacity: 0; pointer-events: none; }
 #entry-box { text-align: center; max-width: 420px; padding: 0 24px; }
