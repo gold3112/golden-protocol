@@ -1259,7 +1259,7 @@ fn render_field_text(field: &FieldState) -> String {
         o.push_str("  NEAR\n");
         o.push_str(&format!("{}\n", d));
         for e in &field.near {
-            let lbl = if e.label.len() > 32 { format!("{}…", &e.label[..31]) } else { e.label.clone() };
+            let lbl = if e.label.chars().count() > 32 { format!("{}…", e.label.chars().take(31).collect::<String>()) } else { e.label.clone() };
             if let Some(c) = e.components {
                 o.push_str(&format!("  ● {:<34} {:.2}  s:{:.2} r:{:.2} a:{:.2} t:{:.2} u:{:.2}\n",
                     lbl, e.distance, c[0], c[1], c[2], c[3], c[4]));
@@ -1274,7 +1274,7 @@ fn render_field_text(field: &FieldState) -> String {
         o.push_str("  HORIZON\n");
         o.push_str(&format!("{}\n", d));
         for e in field.horizon.iter().take(6) {
-            let lbl = if e.label.len() > 32 { format!("{}…", &e.label[..31]) } else { e.label.clone() };
+            let lbl = if e.label.chars().count() > 32 { format!("{}…", e.label.chars().take(31).collect::<String>()) } else { e.label.clone() };
             o.push_str(&format!("  · {:<34} {:.2}\n", lbl, e.distance));
         }
         if field.horizon.len() > 6 {
