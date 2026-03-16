@@ -21,8 +21,15 @@ use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio_stream::{Stream, StreamExt as _, wrappers::IntervalStream};
+use axum::{middleware::{self, Next}, http::{Request, StatusCode}};
+use dashmap::DashMap;
+use governor::{clock::DefaultClock, state::keyed::DefaultKeyedStateStore, Quota, RateLimiter};
+use std::num::NonZeroU32;
+use std::net::IpAddr;
 use tower_http::cors::{Any, CorsLayer};
 use uuid::Uuid;
+
+type IpLimiter = RateLimiter<IpAddr, DefaultKeyedStateStore<IpAddr>, DefaultClock>;
 
 // --- 共有状態 ---
 
@@ -33,6 +40,8 @@ struct AppState {
     activity:        Mutex<HashMap<String, u32>>,
     /// SSE接続中ユーザーのin-memory状態
     connected_users: Mutex<HashMap<Uuid, UserPresence>>,
+    /// IPごとのレートリミッター
+    rate_limiter:    IpLimiter,
 }
 
 /// SSE接続中ユーザーの状態 (永続化しない)
@@ -87,6 +96,32 @@ struct IdentitySummary {
     position:         String,
     encounter_count:  usize,
     interest_preview: Vec<f32>,
+}
+
+// --- レート制限ミドルウェア ---
+
+async fn rate_limit(
+    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
+    req: axum::extract::Request,
+    next: Next,
+) -> Result<axum::response::Response, StatusCode> {
+    let ip = extract_ip(&req);
+    match state.rate_limiter.check_key(&ip) {
+        Ok(_)  => Ok(next.run(req).await),
+        Err(_) => Err(StatusCode::TOO_MANY_REQUESTS),
+    }
+}
+
+/// IP アドレスを抽出する
+/// Cloudflare 経由: CF-Connecting-IP → X-Forwarded-For → フォールバック
+fn extract_ip(req: &axum::extract::Request) -> IpAddr {
+    let headers = req.headers();
+    headers.get("CF-Connecting-IP")
+        .or_else(|| headers.get("X-Forwarded-For"))
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.split(',').next())
+        .and_then(|s| s.trim().parse::<IpAddr>().ok())
+        .unwrap_or(IpAddr::from([127, 0, 0, 1]))
 }
 
 // --- field state 計算コア (HTTP・SSE共通) ---
@@ -625,11 +660,16 @@ async fn main() {
         space.add_entity(entity);
     }
 
+    // 60 req/分、バースト最大 10
+    let quota = Quota::per_minute(NonZeroU32::new(60).unwrap())
+        .allow_burst(NonZeroU32::new(10).unwrap());
+
     let state = Arc::new(AppState {
         graph:           Mutex::new(space),
         weights:         DistanceWeights::default(),
         activity:        Mutex::new(HashMap::new()),
         connected_users: Mutex::new(HashMap::new()),
+        rate_limiter:    IpLimiter::keyed(quota),
     });
 
     // 切断ユーザーの cleanup タスク (15秒以上 last_seen が更新されなければ除去)
@@ -667,6 +707,7 @@ async fn main() {
         .route("/encounter",     post(post_encounter))
         .route("/connect/rss",   post(connect_rss))
         .route("/connect/url",   post(connect_url))
+        .layer(middleware::from_fn_with_state(Arc::clone(&state), rate_limit))
         .layer(cors)
         .with_state(state);
 
