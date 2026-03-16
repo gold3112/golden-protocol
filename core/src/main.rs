@@ -959,6 +959,14 @@ async fn get_feeds() -> Json<serde_json::Value> {
 
 // --- ユーティリティ ---
 
+fn cosine_sim(a: &[f32], b: &[f32]) -> f32 {
+    if a.len() != b.len() { return 0.0; }
+    let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+    let na: f32  = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+    let nb: f32  = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+    if na > 0.0 && nb > 0.0 { dot / (na * nb) } else { 0.0 }
+}
+
 fn fallback_interest(interest: &Option<String>) -> Vec<f32> {
     let text = interest.as_deref().unwrap_or("curiosity exploration knowledge");
     embedding::embed(text).unwrap_or_else(|_| vec![0.0; 384])
@@ -1087,6 +1095,101 @@ async fn main() {
         });
     }
 
+    // ユーザー収束からのエンティティ自然発生タスク (5分ごと)
+    // 複数ユーザーの関心ベクトルが近い = 空間に新しい「場」が生まれる
+    {
+        let state_c = Arc::clone(&state);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(300));
+            loop {
+                interval.tick().await;
+
+                // 接続中ユーザーの interest_vec を取得 (fallback vec は除外)
+                let fallback = embedding::embed("curiosity exploration knowledge")
+                    .unwrap_or_else(|_| vec![0.0; 384]);
+                let users: Vec<(Uuid, Vec<f32>)> = {
+                    let users = state_c.connected_users.lock().unwrap();
+                    users.values()
+                        .filter(|u| {
+                            // fallbackと違うベクトルを持つユーザーのみ (拡張機能で閲覧済み)
+                            let sim = cosine_sim(&u.interest_vec, &fallback);
+                            sim < 0.98
+                        })
+                        .map(|u| (u.id, u.interest_vec.clone()))
+                        .collect()
+                };
+                if users.len() < 2 { continue; }
+
+                // 貪欲クラスタリング: sim > 0.75 のペアをまとめる
+                let mut visited = vec![false; users.len()];
+                let mut clusters: Vec<Vec<usize>> = vec![];
+                for i in 0..users.len() {
+                    if visited[i] { continue; }
+                    let mut cluster = vec![i];
+                    visited[i] = true;
+                    for j in (i+1)..users.len() {
+                        if !visited[j] && cosine_sim(&users[i].1, &users[j].1) > 0.75 {
+                            cluster.push(j);
+                            visited[j] = true;
+                        }
+                    }
+                    if cluster.len() >= 2 { clusters.push(cluster); }
+                }
+                if clusters.is_empty() { continue; }
+
+                for cluster in &clusters {
+                    // 重心ベクトルを計算
+                    let dim = users[0].1.len();
+                    let mut centroid = vec![0.0f32; dim];
+                    for &i in cluster {
+                        for (c, v) in centroid.iter_mut().zip(users[i].1.iter()) {
+                            *c += v;
+                        }
+                    }
+                    centroid.iter_mut().for_each(|c| *c /= cluster.len() as f32);
+
+                    // 既存エンティティとの最小距離 + 最近傍ラベルを取得
+                    let (min_dist, nearest_label, emergence_count) = {
+                        let graph = state_c.graph.lock().unwrap();
+                        let mut min_d = f32::MAX;
+                        let mut label = String::from("field");
+                        let mut emg_count = 0usize;
+                        for idx in graph.graph.node_indices() {
+                            let e = &graph.graph[idx];
+                            if e.label.ends_with("·convergence") { emg_count += 1; }
+                            if let Some(emb) = &e.embedding {
+                                let d = 1.0 - cosine_sim(&centroid, emb);
+                                if d < min_d { min_d = d; label = e.label.clone(); }
+                            }
+                        }
+                        (min_d, label, emg_count)
+                    };
+
+                    // 既存エンティティから十分離れていて、発生上限未満なら生成
+                    if min_dist < 0.25 { continue; }
+                    if emergence_count >= 5 { continue; }
+
+                    let new_label = format!("{}·convergence", nearest_label.chars().take(40).collect::<String>());
+                    // 重複チェック
+                    {
+                        let graph = state_c.graph.lock().unwrap();
+                        if graph.graph.node_indices().any(|i| graph.graph[i].label == new_label) { continue; }
+                    }
+
+                    let mut entity      = Entity::new(EntityKind::Event, &new_label);
+                    entity.embedding    = Some(centroid.clone());
+                    entity.activity_vec = Some(centroid);
+                    let _ = identity::save_entity(&entity);
+                    state_c.graph.lock().unwrap().add_entity(entity);
+                    tracing::info!(
+                        "emergence: '{}' spawned from {} converging users",
+                        new_label, cluster.len()
+                    );
+                }
+            }
+        });
+    }
+
     // RSS 自動取り込みタスク
     // 起動直後: デフォルトフィード登録 + 即時取り込み
     // 以降:     1時間ごとに全登録フィードを再取り込み
@@ -1123,12 +1226,7 @@ async fn main() {
                         // activity_vec と embedding のコサイン類似度を計算
                         // 0.99 以上 = ほぼ decay しきった = 誰も来ていない
                         let sim = match (e.activity_vec.as_ref(), e.embedding.as_ref()) {
-                            (Some(a), Some(b)) if a.len() == b.len() => {
-                                let dot: f32  = a.iter().zip(b.iter()).map(|(x,y)| x*y).sum();
-                                let na: f32   = a.iter().map(|x| x*x).sum::<f32>().sqrt();
-                                let nb: f32   = b.iter().map(|x| x*x).sum::<f32>().sqrt();
-                                if na > 0.0 && nb > 0.0 { dot / (na * nb) } else { 1.0 }
-                            }
+                            (Some(a), Some(b)) => cosine_sim(a, b),
                             _ => 1.0,
                         };
                         if sim >= 0.99 { Some(e.id) } else { None }
