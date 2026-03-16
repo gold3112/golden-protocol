@@ -33,3 +33,4 @@ rss = "2"
 scraper = "0.22"
 governor = "0.6"
 dashmap = "5"
+rusqlite = { version = "0.31", features = ["bundled"] }

@@ -21,8 +21,7 @@ use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio_stream::{Stream, StreamExt as _, wrappers::IntervalStream};
-use axum::{middleware::{self, Next}, http::{Request, StatusCode}};
-use dashmap::DashMap;
+use axum::{middleware::{self, Next}, http::StatusCode};
 use governor::{clock::DefaultClock, state::keyed::DefaultKeyedStateStore, Quota, RateLimiter};
 use std::num::NonZeroU32;
 use std::net::IpAddr;
@@ -636,6 +635,7 @@ fn to_summary(i: &Identity) -> IdentitySummary {
 async fn main() {
     tracing_subscriber::fmt::init();
 
+    identity::init_db().expect("failed to init identity DB");
     println!("initializing embedding model...");
     embedding::init_model().expect("failed to init embedding model");
     println!("embedding model ready.");
