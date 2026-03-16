@@ -36,6 +36,15 @@ pub fn init_db() -> Result<()> {
             max_items INTEGER NOT NULL DEFAULT 20,
             added_at  TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS peers (
+            url       TEXT PRIMARY KEY,
+            node_id   TEXT NOT NULL,
+            last_seen TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS node_config (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
     ")?;
     DB.set(Mutex::new(conn)).ok();
     migrate_json_files();
@@ -279,4 +288,54 @@ pub fn load_feeds() -> Vec<(String, usize)> {
     rows.filter_map(|r| r.ok())
         .map(|(url, max)| (url, max as usize))
         .collect()
+}
+
+// --- ピア管理 ---
+
+pub fn save_peer(url: &str, node_id: Uuid) -> Result<()> {
+    db().execute(
+        "INSERT OR REPLACE INTO peers (url, node_id, last_seen) VALUES (?1, ?2, ?3)",
+        params![url, node_id.to_string(), Utc::now().to_rfc3339()],
+    )?;
+    Ok(())
+}
+
+pub fn load_peers_from_db() -> Vec<(String, Uuid)> {
+    let conn = db();
+    let mut stmt = match conn.prepare("SELECT url, node_id FROM peers") {
+        Ok(s) => s,
+        Err(_) => return vec![],
+    };
+    let rows = match stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))) {
+        Ok(r) => r,
+        Err(_) => return vec![],
+    };
+    rows.filter_map(|r| r.ok())
+        .filter_map(|(url, id)| id.parse::<Uuid>().ok().map(|uid| (url, uid)))
+        .collect()
+}
+
+pub fn prune_stale_peers(hours: i64) -> Result<usize> {
+    let cutoff = (Utc::now() - chrono::Duration::hours(hours)).to_rfc3339();
+    let n = db().execute("DELETE FROM peers WHERE last_seen < ?1", params![cutoff])?;
+    Ok(n)
+}
+
+// --- ノード自身のID管理 ---
+
+pub fn get_or_create_node_id() -> Uuid {
+    let conn = db();
+    if let Ok(id) = conn.query_row(
+        "SELECT value FROM node_config WHERE key = 'node_id'",
+        [],
+        |row| row.get::<_, String>(0),
+    ) {
+        return id.parse().unwrap_or_else(|_| Uuid::new_v4());
+    }
+    let id = Uuid::new_v4();
+    let _ = conn.execute(
+        "INSERT INTO node_config (key, value) VALUES ('node_id', ?1)",
+        params![id.to_string()],
+    );
+    id
 }

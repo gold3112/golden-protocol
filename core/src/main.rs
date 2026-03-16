@@ -41,6 +41,10 @@ struct AppState {
     connected_users: Mutex<HashMap<Uuid, UserPresence>>,
     /// IPごとのレートリミッター
     rate_limiter:    IpLimiter,
+    /// このノードの固有ID
+    node_id:         Uuid,
+    /// 接続中のピアノード: url -> node_id
+    peers:           Mutex<HashMap<String, Uuid>>,
 }
 
 /// SSE接続中ユーザーの状態 (永続化しない)
@@ -957,6 +961,58 @@ async fn get_feeds() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "count": list.len(), "feeds": list }))
 }
 
+// --- Federation ---
+
+#[derive(Serialize, Deserialize)]
+struct PeerAnnounce {
+    node_id: Uuid,
+    url:     String,
+}
+
+/// GET /peers — 既知ピア一覧
+async fn get_peers(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
+    let peers = state.peers.lock().unwrap();
+    let list: Vec<serde_json::Value> = peers.iter().map(|(url, id)| {
+        serde_json::json!({ "url": url, "node_id": id })
+    }).collect();
+    Json(serde_json::json!({
+        "node_id": state.node_id,
+        "peers":   list,
+    }))
+}
+
+/// POST /peer/register — 他ノードが自分を登録してくる
+async fn register_peer(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<PeerAnnounce>,
+) -> Json<serde_json::Value> {
+    let url = req.url.trim_end_matches('/').to_string();
+    state.peers.lock().unwrap().insert(url.clone(), req.node_id);
+    let _ = identity::save_peer(&url, req.node_id);
+    tracing::info!("peer registered: {} ({})", url, req.node_id);
+    // 自分のピアリストを返す (相手も知らないノードを知れる)
+    let peers = state.peers.lock().unwrap();
+    let list: Vec<serde_json::Value> = peers.iter()
+        .filter(|(u, _)| **u != url)
+        .map(|(u, id)| serde_json::json!({ "url": u, "node_id": id }))
+        .collect();
+    Json(serde_json::json!({
+        "node_id": state.node_id,
+        "peers":   list,
+    }))
+}
+
+/// GET /entities/export — 全エンティティをembedding込みでエクスポート (ピア同期用)
+async fn export_entities(State(state): State<Arc<AppState>>) -> Json<Vec<Entity>> {
+    let graph = state.graph.lock().unwrap();
+    let entities: Vec<Entity> = graph.graph.node_indices()
+        .map(|idx| graph.graph[idx].clone())
+        .filter(|e| !e.label.ends_with("·convergence")) // 発生エンティティは共有しない
+        .filter(|e| !e.label.starts_with("wanderer_"))  // 他ノードのユーザーも共有しない
+        .collect();
+    Json(entities)
+}
+
 // --- ユーティリティ ---
 
 fn cosine_sim(a: &[f32], b: &[f32]) -> f32 {
@@ -1030,12 +1086,19 @@ async fn main() {
     let quota = Quota::per_minute(NonZeroU32::new(60).unwrap())
         .allow_burst(NonZeroU32::new(10).unwrap());
 
+    let node_id      = identity::get_or_create_node_id();
+    let saved_peers  = identity::load_peers_from_db()
+        .into_iter().collect::<HashMap<String, Uuid>>();
+    tracing::info!("node_id: {} ({} known peers)", node_id, saved_peers.len());
+
     let state = Arc::new(AppState {
         graph:           Mutex::new(space),
         weights:         DistanceWeights::default(),
         activity:        Mutex::new(HashMap::new()),
         connected_users: Mutex::new(HashMap::new()),
         rate_limiter:    IpLimiter::keyed(quota),
+        node_id,
+        peers:           Mutex::new(saved_peers),
     });
 
     // 切断ユーザーの cleanup タスク (15秒以上 last_seen が更新されなければ除去)
@@ -1190,6 +1253,121 @@ async fn main() {
         });
     }
 
+    // Federation gossipタスク
+    // 10分ごとに全ピアからエンティティを同期
+    // GOLDEN_NODE_URL が設定されていれば bootstrap node に自己登録
+    {
+        let state_c   = Arc::clone(&state);
+        let node_id_c = state.node_id;
+        tokio::spawn(async move {
+            let node_url  = std::env::var("GOLDEN_NODE_URL").unwrap_or_default();
+            let bootstrap = std::env::var("GOLDEN_BOOTSTRAP")
+                .unwrap_or_else(|_| "https://space.gold3112.online".to_string());
+
+            // 自分がbootstrapでない場合、bootstrapに自己登録
+            if !node_url.is_empty() && !node_url.contains("space.gold3112.online") {
+                let body = serde_json::json!({ "node_id": node_id_c, "url": node_url });
+                if let Ok(resp) = reqwest::Client::new()
+                    .post(format!("{}/peer/register", bootstrap))
+                    .json(&body)
+                    .send().await
+                {
+                    if let Ok(data) = resp.json::<serde_json::Value>().await {
+                        // bootstrapが返すピアリストも取り込む
+                        if let Some(peers) = data["peers"].as_array() {
+                            for p in peers {
+                                if let (Some(url), Some(id)) = (
+                                    p["url"].as_str(),
+                                    p["node_id"].as_str().and_then(|s| s.parse::<Uuid>().ok())
+                                ) {
+                                    state_c.peers.lock().unwrap().insert(url.to_string(), id);
+                                    let _ = identity::save_peer(url, id);
+                                }
+                            }
+                        }
+                    }
+                    tracing::info!("registered with bootstrap: {}", bootstrap);
+                }
+            }
+
+            // bootstrapをピアとして追加 (自分でない場合)
+            if !bootstrap.contains(node_url.trim_end_matches('/')) {
+                if let Ok(resp) = reqwest::get(format!("{}/peers", bootstrap)).await {
+                    if let Ok(data) = resp.json::<serde_json::Value>().await {
+                        if let Some(id) = data["node_id"].as_str().and_then(|s| s.parse::<Uuid>().ok()) {
+                            state_c.peers.lock().unwrap().insert(bootstrap.clone(), id);
+                            let _ = identity::save_peer(&bootstrap, id);
+                        }
+                    }
+                }
+            }
+
+            // 10分ごとにgossip
+            let mut interval = tokio::time::interval(Duration::from_secs(600));
+            loop {
+                interval.tick().await;
+                let peers: Vec<String> = state_c.peers.lock().unwrap().keys().cloned().collect();
+                for peer_url in peers {
+                    // ピアのエンティティをfetch
+                    let entities: Vec<Entity> = match reqwest::get(
+                        format!("{}/entities/export", peer_url)
+                    ).await {
+                        Ok(r) => r.json().await.unwrap_or_default(),
+                        Err(_) => continue,
+                    };
+
+                    let mut imported = 0usize;
+                    for remote in entities {
+                        let mut graph = state_c.graph.lock().unwrap();
+                        // ラベルで検索: 存在しなければ追加、あればlast_activeが新しい方を採用
+                        let existing = graph.graph.node_indices()
+                            .find(|&i| graph.graph[i].label == remote.label);
+                        match existing {
+                            None => {
+                                let _ = identity::save_entity(&remote);
+                                graph.add_entity(remote);
+                                imported += 1;
+                            }
+                            Some(idx) => {
+                                if remote.last_active > graph.graph[idx].last_active {
+                                    graph.graph[idx].activity_vec = remote.activity_vec;
+                                    graph.graph[idx].last_active  = remote.last_active;
+                                    let _ = identity::save_entity(&graph.graph[idx]);
+                                }
+                            }
+                        }
+                    }
+                    if imported > 0 {
+                        tracing::info!("gossip: +{} entities from {}", imported, peer_url);
+                    }
+
+                    // ピアのピアリストも取り込む (ネットワーク拡大)
+                    if let Ok(resp) = reqwest::get(format!("{}/peers", peer_url)).await {
+                        if let Ok(data) = resp.json::<serde_json::Value>().await {
+                            if let Some(list) = data["peers"].as_array() {
+                                for p in list {
+                                    if let (Some(url), Some(id)) = (
+                                        p["url"].as_str(),
+                                        p["node_id"].as_str().and_then(|s| s.parse::<Uuid>().ok())
+                                    ) {
+                                        let mut peers = state_c.peers.lock().unwrap();
+                                        if !peers.contains_key(url) {
+                                            peers.insert(url.to_string(), id);
+                                            let _ = identity::save_peer(url, id);
+                                            tracing::info!("discovered new peer via gossip: {}", url);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                // 24時間応答のないピアを削除
+                let _ = identity::prune_stale_peers(24);
+            }
+        });
+    }
+
     // RSS 自動取り込みタスク
     // 起動直後: デフォルトフィード登録 + 即時取り込み
     // 以降:     1時間ごとに全登録フィードを再取り込み
@@ -1269,9 +1447,12 @@ async fn main() {
         .route("/identity/new",  get(new_identity))
         .route("/identity/:id",  get(get_identity))
         .route("/encounter",     post(post_encounter))
-        .route("/connect/rss",   post(connect_rss))
-        .route("/connect/url",   post(connect_url))
-        .route("/feeds",         get(get_feeds))
+        .route("/connect/rss",    post(connect_rss))
+        .route("/connect/url",    post(connect_url))
+        .route("/feeds",          get(get_feeds))
+        .route("/peers",          get(get_peers))
+        .route("/peer/register",  post(register_peer))
+        .route("/entities/export", get(export_entities))
         .layer(middleware::from_fn_with_state(Arc::clone(&state), rate_limit))
         .layer(cors)
         .with_state(state);
