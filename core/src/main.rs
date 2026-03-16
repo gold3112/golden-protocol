@@ -301,55 +301,143 @@ body {
   font-size: 12px;
   height: 100vh;
   overflow: hidden;
+  cursor: default;
 }
-canvas {
-  position: fixed;
-  top: 0; left: 0;
-  width: 100%; height: 100%;
+canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
+
+/* --- entry overlay --- */
+#entry {
+  position: fixed; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(7,7,15,0.92);
+  z-index: 100;
+  transition: opacity 0.8s ease;
 }
+#entry.hidden { opacity: 0; pointer-events: none; }
+#entry-box { text-align: center; max-width: 420px; padding: 0 24px; }
+#entry-title {
+  font-size: 11px; letter-spacing: 0.3em; text-transform: uppercase;
+  color: #303050; margin-bottom: 32px;
+}
+#entry-q {
+  font-size: 22px; color: #9090c8; font-weight: normal;
+  line-height: 1.5; margin-bottom: 10px;
+}
+#entry-sub {
+  font-size: 11px; color: #303048; margin-bottom: 32px; line-height: 1.8;
+}
+#entry-input {
+  width: 100%; background: transparent;
+  border: none; border-bottom: 1px solid #303060;
+  color: #c0c0e8; font-family: inherit; font-size: 15px;
+  padding: 10px 0; outline: none; text-align: center;
+  letter-spacing: 0.05em;
+  transition: border-color 0.3s;
+}
+#entry-input::placeholder { color: #282848; }
+#entry-input:focus { border-color: #6060a0; }
+#entry-actions { margin-top: 24px; display: flex; gap: 24px; justify-content: center; }
+#entry-enter {
+  background: none; border: 1px solid #404070;
+  color: #7070b0; font-family: inherit; font-size: 11px;
+  letter-spacing: 0.15em; padding: 8px 20px; cursor: pointer;
+  transition: all 0.2s;
+}
+#entry-enter:hover { border-color: #7070b0; color: #a0a0d8; }
+#entry-skip {
+  background: none; border: none; color: #282848;
+  font-family: inherit; font-size: 11px; cursor: pointer;
+  letter-spacing: 0.1em; padding: 8px 0;
+}
+#entry-skip:hover { color: #484868; }
+
+/* --- main ui --- */
 #ui {
-  position: fixed;
-  top: 0; left: 0;
-  width: 100%; height: 100%;
+  position: fixed; inset: 0;
   pointer-events: none;
-  display: flex;
-  flex-direction: column;
+  display: flex; flex-direction: column;
   justify-content: space-between;
   padding: 28px 32px;
 }
 #top { display: flex; justify-content: space-between; align-items: flex-start; }
-#tagline { font-size: 9px; letter-spacing: 0.22em; text-transform: uppercase; color: #2a2a44; margin-bottom: 10px; }
+#tagline { font-size: 9px; letter-spacing: 0.22em; text-transform: uppercase; color: #22223a; margin-bottom: 10px; }
 #position { font-size: 20px; color: #d4af37; letter-spacing: 0.04em; min-height: 28px; }
-#meta-line { font-size: 10px; color: #303050; margin-top: 6px; }
-#meta-line span { color: #484868; }
+#meta-line { font-size: 10px; color: #282840; margin-top: 6px; }
+#meta-line span { color: #383858; }
 #presence-block { text-align: right; }
-#presence-count { font-size: 28px; color: #50508a; letter-spacing: -0.02em; }
-#presence-label { font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; color: #252540; margin-top: 4px; }
+#presence-count { font-size: 28px; color: #44447a; letter-spacing: -0.02em; }
+#presence-label { font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; color: #202038; margin-top: 4px; }
 #bottom { display: flex; justify-content: space-between; align-items: flex-end; }
-#drift { font-size: 11px; color: #906028; min-height: 18px; letter-spacing: 0.05em; }
+#drift { font-size: 11px; color: #806020; min-height: 18px; letter-spacing: 0.05em; }
 #footer-right { text-align: right; }
-#conn { font-size: 9px; letter-spacing: 0.15em; color: #202038; margin-bottom: 6px; }
+#conn { font-size: 9px; letter-spacing: 0.15em; color: #1c1c30; margin-bottom: 6px; }
 #footer-link { pointer-events: auto; }
-#footer-link a {
-  font-size: 10px; color: #303055;
-  text-decoration: none; border-bottom: 1px solid #252542;
-  letter-spacing: 0.08em;
+#footer-link a { font-size: 10px; color: #282848; text-decoration: none; border-bottom: 1px solid #202038; letter-spacing: 0.08em; }
+#footer-link a:hover { color: #6060a0; border-color: #4040a0; }
+
+/* --- entity panel --- */
+#panel {
+  position: fixed; right: 32px; top: 50%; transform: translateY(-50%);
+  width: 220px; background: rgba(10,10,22,0.95);
+  border: 1px solid #1e1e38; padding: 20px;
+  pointer-events: auto;
+  opacity: 0; transition: opacity 0.3s ease;
 }
-#footer-link a:hover { color: #7070b0; border-color: #5050a0; }
+#panel.visible { opacity: 1; }
+#panel-kind { font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: #404060; margin-bottom: 8px; }
+#panel-label { font-size: 13px; color: #c0c0e8; line-height: 1.5; margin-bottom: 16px; word-break: break-word; }
+#panel-search {
+  display: block; font-size: 10px; color: #505080;
+  text-decoration: none; letter-spacing: 0.1em;
+  border-bottom: 1px solid #282848; padding-bottom: 4px;
+}
+#panel-search:hover { color: #8080b8; border-color: #4040a0; }
+#panel-close {
+  position: absolute; top: 10px; right: 12px;
+  background: none; border: none; color: #303050;
+  font-family: inherit; font-size: 14px; cursor: pointer;
+  line-height: 1;
+}
+#panel-close:hover { color: #6060a0; }
+
+/* --- hint (first time) --- */
+#hint {
+  position: fixed; bottom: 64px; left: 50%; transform: translateX(-50%);
+  font-size: 10px; color: #282848; letter-spacing: 0.12em;
+  pointer-events: none; transition: opacity 1s ease;
+  white-space: nowrap;
+}
+#hint.hidden { opacity: 0; }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+
+<!-- entry overlay -->
+<div id="entry">
+  <div id="entry-box">
+    <div id="entry-title">Golden Protocol</div>
+    <div id="entry-q">What are you thinking about?</div>
+    <div id="entry-sub">The space will form around you.<br>Others are already here.</div>
+    <input id="entry-input" type="text" placeholder="type anything..." autocomplete="off" spellcheck="false">
+    <div id="entry-actions">
+      <button id="entry-enter">enter →</button>
+      <button id="entry-skip">just wander</button>
+    </div>
+  </div>
+</div>
+
+<!-- main ui -->
 <div id="ui">
   <div id="top">
     <div>
       <div id="tagline">Golden Protocol · space.gold3112.online</div>
       <div id="position">—</div>
-      <div id="meta-line">density <span id="density">—</span> &nbsp;·&nbsp; <span id="conn">connecting</span></div>
+      <div id="meta-line"><span id="conn">connecting</span></div>
     </div>
     <div id="presence-block">
       <div id="presence-count">—</div>
-      <div id="presence-label">present</div>
+      <div id="presence-label">here</div>
     </div>
   </div>
   <div id="bottom">
@@ -359,6 +447,16 @@ canvas {
     </div>
   </div>
 </div>
+
+<!-- entity panel -->
+<div id="panel">
+  <button id="panel-close">×</button>
+  <div id="panel-kind"></div>
+  <div id="panel-label"></div>
+  <a id="panel-search" href="#" target="_blank">search →</a>
+</div>
+
+<div id="hint">click anything nearby to explore</div>
 
 <script>
 const canvas = document.getElementById('c');
@@ -373,7 +471,6 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
-// stable angle from label string
 function labelAngle(label) {
   let h = 5381;
   for (let i = 0; i < label.length; i++) h = (((h << 5) + h) + label.charCodeAt(i)) >>> 0;
@@ -389,9 +486,7 @@ function distToRadius(dist) {
   return beyond + ((dist - 0.70) / 0.30) * (Math.min(W, H) * 0.06);
 }
 
-// entity state: label -> {x, y, tx, ty, b, tb, kind}
 const nodes = {};
-
 const KIND_COLOR = {
   AI:      [170, 130, 255],
   Stream:  [70,  170, 255],
@@ -426,12 +521,54 @@ function updateNodes(field, allEntities) {
 
 function lerp(a, b, t) { return a + (b - a) * t; }
 
+// --- hover / click ---
+let mouseX = -999, mouseY = -999;
+let hoveredNode = null;
+
+canvas.addEventListener('mousemove', e => {
+  mouseX = e.clientX; mouseY = e.clientY;
+  const hit = findNearestNode(mouseX, mouseY, 40);
+  if (hit !== hoveredNode) {
+    hoveredNode = hit;
+    canvas.style.cursor = hit ? 'pointer' : 'default';
+  }
+});
+
+canvas.addEventListener('click', e => {
+  const hit = findNearestNode(e.clientX, e.clientY, 40);
+  if (hit) showPanel(hit);
+});
+
+function findNearestNode(mx, my, maxDist) {
+  let best = null, bestD = maxDist;
+  Object.values(nodes).forEach(n => {
+    if (n.b < 0.1) return;
+    const d = Math.hypot(n.x - mx, n.y - my);
+    if (d < bestD) { bestD = d; best = n; }
+  });
+  return best;
+}
+
+function showPanel(node) {
+  document.getElementById('panel-kind').textContent  = node.kind;
+  document.getElementById('panel-label').textContent = node.label;
+  const q = encodeURIComponent(node.label);
+  document.getElementById('panel-search').href = `https://www.google.com/search?q=${q}`;
+  document.getElementById('panel').classList.add('visible');
+  // hide hint once panel is used
+  document.getElementById('hint').classList.add('hidden');
+}
+
+document.getElementById('panel-close').addEventListener('click', () => {
+  document.getElementById('panel').classList.remove('visible');
+});
+
+// --- canvas animation ---
 let clock = 0;
 function animate() {
   requestAnimationFrame(animate);
   clock += 0.016;
 
-  // soft trail
   ctx.fillStyle = 'rgba(7,7,15,0.18)';
   ctx.fillRect(0, 0, W, H);
 
@@ -451,27 +588,30 @@ function drawNode(n) {
   const b = n.b;
   if (b < 0.02) return;
   const [r, g, bl] = KIND_COLOR[n.kind] || [140, 140, 190];
-  const pulse  = 1 + 0.12 * Math.sin(clock * 1.4 + labelAngle(n.label));
-  const radius = (2 + b * 5) * pulse;
+  const isHovered  = hoveredNode === n;
+  const pulse  = 1 + (isHovered ? 0.3 : 0.12) * Math.sin(clock * 1.4 + labelAngle(n.label));
+  const radius = (2 + b * 5) * pulse * (isHovered ? 1.4 : 1);
 
-  if (b > 0.25) {
-    const gr = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, radius * 7);
-    gr.addColorStop(0, `rgba(${r},${g},${bl},${b * 0.25})`);
+  if (b > 0.2 || isHovered) {
+    const glowR = isHovered ? radius * 10 : radius * 7;
+    const gr = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, glowR);
+    gr.addColorStop(0, `rgba(${r},${g},${bl},${isHovered ? 0.4 : b * 0.25})`);
     gr.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = gr;
     ctx.beginPath();
-    ctx.arc(n.x, n.y, radius * 7, 0, Math.PI * 2);
+    ctx.arc(n.x, n.y, glowR, 0, Math.PI * 2);
     ctx.fill();
   }
 
-  ctx.fillStyle = `rgba(${r},${g},${bl},${Math.min(1, b * 1.2)})`;
+  ctx.fillStyle = `rgba(${r},${g},${bl},${Math.min(1, (isHovered ? 1 : b) * 1.2)})`;
   ctx.beginPath();
   ctx.arc(n.x, n.y, radius, 0, Math.PI * 2);
   ctx.fill();
 
-  if (b > 0.15) {
-    ctx.fillStyle = `rgba(${r},${g},${bl},${b * 0.75})`;
-    ctx.font = `${Math.round(9 + b * 3)}px "SF Mono",monospace`;
+  if (b > 0.12 || isHovered) {
+    const alpha = isHovered ? 1 : b * 0.75;
+    ctx.fillStyle = `rgba(${r},${g},${bl},${alpha})`;
+    ctx.font = `${Math.round(isHovered ? 11 : 9 + b * 3)}px "SF Mono",monospace`;
     ctx.fillText(n.label, n.x + radius + 5, n.y + 4);
   }
 }
@@ -479,7 +619,6 @@ function drawNode(n) {
 function drawSelf() {
   const pulse = 1 + 0.18 * Math.sin(clock * 2.2);
   const s = 9 * pulse;
-
   const gr = ctx.createRadialGradient(cx, cy, 0, cx, cy, 28 * pulse);
   gr.addColorStop(0,   'rgba(212,175,55,0.7)');
   gr.addColorStop(0.3, 'rgba(212,175,55,0.12)');
@@ -488,14 +627,12 @@ function drawSelf() {
   ctx.beginPath();
   ctx.arc(cx, cy, 28 * pulse, 0, Math.PI * 2);
   ctx.fill();
-
   ctx.strokeStyle = `rgba(212,175,55,${0.5 + 0.3 * Math.sin(clock * 2.2)})`;
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(cx - s, cy); ctx.lineTo(cx + s, cy);
   ctx.moveTo(cx, cy - s); ctx.lineTo(cx, cy + s);
   ctx.stroke();
-
   ctx.fillStyle = 'rgba(212,175,55,1)';
   ctx.beginPath();
   ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
@@ -515,11 +652,9 @@ function drawRings() {
   });
 }
 
-// --- wanderers (other users) ---
-// id -> {x, y, tx, ty, phase}
+// --- wanderers ---
 const wanderers = {};
 
-// stable small offset from entity center, seeded by user id
 function idOffset(id) {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (((h << 5) + h) + id.charCodeAt(i)) >>> 0;
@@ -535,27 +670,19 @@ function updateWanderers(users) {
     const node = nodes[u.position];
     if (!node) return;
     const [ox, oy] = idOffset(u.id);
-    const tx = node.x + ox;
-    const ty = node.y + oy;
-    if (!wanderers[u.id]) {
-      wanderers[u.id] = { x: tx, y: ty, phase: Math.random() * Math.PI * 2 };
-    }
+    const tx = node.x + ox, ty = node.y + oy;
+    if (!wanderers[u.id]) wanderers[u.id] = { x: tx, y: ty, phase: Math.random() * Math.PI * 2 };
     wanderers[u.id].tx = tx;
     wanderers[u.id].ty = ty;
   });
-  // remove gone users
   Object.keys(wanderers).forEach(id => { if (!seen.has(id)) delete wanderers[id]; });
 }
 
 function drawWanderers() {
   Object.values(wanderers).forEach(w => {
-    if (w.tx !== undefined) {
-      w.x = lerp(w.x, w.tx, 0.06);
-      w.y = lerp(w.y, w.ty, 0.06);
-    }
+    if (w.tx !== undefined) { w.x = lerp(w.x, w.tx, 0.06); w.y = lerp(w.y, w.ty, 0.06); }
     const pulse = 1 + 0.2 * Math.sin(clock * 1.8 + w.phase);
     const r = 3.5 * pulse;
-
     const gr = ctx.createRadialGradient(w.x, w.y, 0, w.x, w.y, r * 5);
     gr.addColorStop(0, 'rgba(80,200,200,0.3)');
     gr.addColorStop(1, 'rgba(0,0,0,0)');
@@ -563,7 +690,6 @@ function drawWanderers() {
     ctx.beginPath();
     ctx.arc(w.x, w.y, r * 5, 0, Math.PI * 2);
     ctx.fill();
-
     ctx.fillStyle = `rgba(100,220,220,${0.7 + 0.3 * Math.sin(clock * 1.8 + w.phase)})`;
     ctx.beginPath();
     ctx.arc(w.x, w.y, r, 0, Math.PI * 2);
@@ -571,8 +697,32 @@ function drawWanderers() {
   });
 }
 
+// --- entry & interest ---
+let interest = sessionStorage.getItem('gp_interest') || '';
+
+function enterSpace(text) {
+  interest = text.trim() || 'curiosity exploration wandering';
+  sessionStorage.setItem('gp_interest', interest);
+  const el = document.getElementById('entry');
+  el.classList.add('hidden');
+  setTimeout(() => el.style.display = 'none', 900);
+  // hint fades out after 6s
+  setTimeout(() => document.getElementById('hint').classList.add('hidden'), 6000);
+  startPolling();
+}
+
+document.getElementById('entry-enter').addEventListener('click', () => {
+  enterSpace(document.getElementById('entry-input').value);
+});
+document.getElementById('entry-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') enterSpace(e.target.value);
+});
+document.getElementById('entry-skip').addEventListener('click', () => {
+  enterSpace('');
+});
+
 // --- data ---
-let allEntities = [];
+let allEntities = [], pollStarted = false;
 
 async function fetchEntities() {
   try { allEntities = await fetch('/entities').then(r => r.json()); } catch {}
@@ -587,11 +737,10 @@ async function fetchPresence() {
 
 async function fetchField() {
   try {
-    const f = await fetch('/field?interest=curiosity+exploration+encounter').then(r => r.json());
+    const enc = encodeURIComponent(interest || 'curiosity exploration wandering');
+    const f   = await fetch('/field?interest=' + enc).then(r => r.json());
     updateNodes(f, allEntities);
-
     document.getElementById('position').textContent       = f.position || '—';
-    document.getElementById('density').textContent        = ((f.density||0)*100).toFixed(0) + '%';
     document.getElementById('presence-count').textContent = f.presence || 0;
     document.getElementById('conn').textContent           = 'live';
     const drift = f.drift && f.drift.length ? '› drifting toward ' + f.drift[0].toward : '';
@@ -601,13 +750,25 @@ async function fetchField() {
   }
 }
 
-fetchEntities().then(() => {
-  fetchField();
-  fetchPresence();
-  setInterval(fetchField,    4000);
-  setInterval(fetchPresence, 4000);
-  setInterval(fetchEntities, 30000);
-});
+function startPolling() {
+  if (pollStarted) return;
+  pollStarted = true;
+  fetchEntities().then(() => {
+    fetchField();
+    fetchPresence();
+    setInterval(fetchField,    4000);
+    setInterval(fetchPresence, 4000);
+    setInterval(fetchEntities, 30000);
+  });
+}
+
+// returning visitor: skip entry screen
+if (interest) {
+  document.getElementById('entry').style.display = 'none';
+  setTimeout(() => document.getElementById('hint').classList.add('hidden'), 6000);
+  startPolling();
+}
+
 animate();
 </script>
 </body>
