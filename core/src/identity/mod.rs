@@ -45,6 +45,15 @@ pub fn init_db() -> Result<()> {
             key   TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS messages (
+            id           TEXT PRIMARY KEY,
+            entity_label TEXT NOT NULL,
+            text         TEXT NOT NULL,
+            author       TEXT NOT NULL DEFAULT 'wanderer',
+            created_at   TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS messages_label ON messages(entity_label);
+        CREATE INDEX IF NOT EXISTS messages_time  ON messages(created_at);
     ")?;
     DB.set(Mutex::new(conn)).ok();
     migrate_json_files();
@@ -322,6 +331,67 @@ pub fn prune_stale_peers(hours: i64) -> Result<usize> {
 }
 
 // --- ノード自身のID管理 ---
+
+// --- メッセージ ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageRecord {
+    pub id:           Uuid,
+    pub entity_label: String,
+    pub text:         String,
+    pub author:       String,
+    pub created_at:   DateTime<Utc>,
+}
+
+pub fn save_message(entity_label: &str, text: &str, author: &str) -> Result<()> {
+    let id = Uuid::new_v4();
+    db().execute(
+        "INSERT INTO messages (id, entity_label, text, author, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![id.to_string(), entity_label, text, author, Utc::now().to_rfc3339()],
+    )?;
+    Ok(())
+}
+
+pub fn load_messages_for_labels(labels: &[String], per_label: usize) -> Vec<MessageRecord> {
+    if labels.is_empty() { return vec![]; }
+    let conn = db();
+    let mut results = vec![];
+    for label in labels {
+        let mut stmt = match conn.prepare(
+            "SELECT id, entity_label, text, author, created_at FROM messages \
+             WHERE entity_label = ?1 ORDER BY created_at DESC LIMIT ?2"
+        ) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        let rows = match stmt.query_map(params![label, per_label as i64], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+            ))
+        }) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        for (id, entity_label, text, author, created_at) in rows.flatten() {
+            let id          = id.parse::<Uuid>().unwrap_or_else(|_| Uuid::new_v4());
+            let created_at  = created_at.parse::<DateTime<Utc>>().unwrap_or_else(|_| Utc::now());
+            results.push(MessageRecord { id, entity_label, text, author, created_at });
+        }
+    }
+    // 時系列昇順で返す (古い→新しい)
+    results.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+    results
+}
+
+pub fn cleanup_old_messages(hours: i64) -> Result<usize> {
+    let cutoff = (Utc::now() - chrono::Duration::hours(hours)).to_rfc3339();
+    let n = db().execute("DELETE FROM messages WHERE created_at < ?1", params![cutoff])?;
+    Ok(n)
+}
 
 pub fn get_or_create_node_id() -> Uuid {
     let conn = db();

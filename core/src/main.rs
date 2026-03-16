@@ -277,6 +277,13 @@ fn compute_field_state(state: &AppState, q: &FieldQuery) -> FieldState {
         }
     }
 
+    // Pass 5: near entity のメッセージをロード (wanderer_ は除く)
+    let near_labels: Vec<String> = field.near.iter()
+        .filter(|e| !e.label.starts_with("wanderer_"))
+        .map(|e| e.label.clone())
+        .collect();
+    field.messages = identity::load_messages_for_labels(&near_labels, 3);
+
     field
 }
 
@@ -378,18 +385,19 @@ canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
 /* --- entity panel --- */
 #panel {
   position: fixed; right: 32px; top: 50%; transform: translateY(-50%);
-  width: 220px; background: rgba(10,10,22,0.95);
+  width: 240px; background: rgba(10,10,22,0.97);
   border: 1px solid #1e1e38; padding: 20px;
   pointer-events: auto;
   opacity: 0; transition: opacity 0.3s ease;
+  max-height: 80vh; overflow-y: auto;
 }
 #panel.visible { opacity: 1; }
 #panel-kind { font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: #404060; margin-bottom: 8px; }
-#panel-label { font-size: 13px; color: #c0c0e8; line-height: 1.5; margin-bottom: 16px; word-break: break-word; }
+#panel-label { font-size: 13px; color: #c0c0e8; line-height: 1.5; margin-bottom: 12px; word-break: break-word; }
 #panel-search {
   display: block; font-size: 10px; color: #505080;
   text-decoration: none; letter-spacing: 0.1em;
-  border-bottom: 1px solid #282848; padding-bottom: 4px;
+  border-bottom: 1px solid #1a1a30; padding-bottom: 10px; margin-bottom: 12px;
 }
 #panel-search:hover { color: #8080b8; border-color: #4040a0; }
 #panel-close {
@@ -399,6 +407,27 @@ canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
   line-height: 1;
 }
 #panel-close:hover { color: #6060a0; }
+/* messages */
+#panel-messages { margin-bottom: 10px; min-height: 20px; }
+.panel-msg { margin-bottom: 8px; }
+.panel-msg-author { font-size: 9px; color: #303058; letter-spacing: 0.1em; display: block; margin-bottom: 2px; }
+.panel-msg-text { font-size: 11px; color: #8080b0; line-height: 1.5; display: block; word-break: break-word; }
+.panel-no-msg { font-size: 10px; color: #202038; letter-spacing: 0.05em; font-style: italic; }
+/* message input */
+#panel-msg-form { display: flex; gap: 6px; margin-top: 4px; border-top: 1px solid #1a1a30; padding-top: 10px; }
+#panel-msg-input {
+  flex: 1; background: transparent; border: none;
+  border-bottom: 1px solid #282848; color: #9090c0;
+  font-family: inherit; font-size: 11px; padding: 4px 0;
+  outline: none;
+}
+#panel-msg-input::placeholder { color: #202038; }
+#panel-msg-input:focus { border-color: #4040a0; }
+#panel-msg-send {
+  background: none; border: none; color: #404070;
+  font-family: inherit; font-size: 13px; cursor: pointer; padding: 0 4px;
+}
+#panel-msg-send:hover { color: #8080c0; }
 
 /* --- hint (first time) --- */
 #hint {
@@ -454,6 +483,11 @@ canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
   <div id="panel-kind"></div>
   <div id="panel-label"></div>
   <a id="panel-search" href="#" target="_blank">search →</a>
+  <div id="panel-messages"></div>
+  <div id="panel-msg-form">
+    <input id="panel-msg-input" type="text" placeholder="say something..." autocomplete="off" maxlength="280">
+    <button id="panel-msg-send">→</button>
+  </div>
 </div>
 
 <div id="hint">click anything nearby to explore</div>
@@ -587,17 +621,80 @@ function findNearestNode(mx, my, maxDist) {
   return best;
 }
 
+let entityMessages = {}; // label -> MessageRecord[]
+let currentPanelEntity = null;
+
+// ephemeral author name — persists for the session
+let authorName = sessionStorage.getItem('gp_author');
+if (!authorName) {
+  authorName = 'wanderer_' + Math.random().toString(36).slice(2, 6);
+  sessionStorage.setItem('gp_author', authorName);
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function updateMessages(field) {
+  const fresh = {};
+  (field.messages || []).forEach(m => {
+    if (!fresh[m.entity_label]) fresh[m.entity_label] = [];
+    fresh[m.entity_label].push(m);
+  });
+  entityMessages = fresh;
+  // refresh panel if open
+  if (currentPanelEntity) renderPanelMessages(currentPanelEntity);
+}
+
+function renderPanelMessages(label) {
+  const msgs = entityMessages[label] || [];
+  const el   = document.getElementById('panel-messages');
+  if (msgs.length === 0) {
+    el.innerHTML = '<div class="panel-no-msg">no voices here yet</div>';
+  } else {
+    el.innerHTML = msgs.map(m =>
+      `<div class="panel-msg">` +
+      `<span class="panel-msg-author">${escapeHtml(m.author)}</span>` +
+      `<span class="panel-msg-text">${escapeHtml(m.text)}</span>` +
+      `</div>`
+    ).join('');
+  }
+}
+
 function showPanel(node) {
   document.getElementById('panel-kind').textContent  = node.kind;
   document.getElementById('panel-label').textContent = node.label;
   const q = encodeURIComponent(node.label);
   document.getElementById('panel-search').href = `https://www.google.com/search?q=${q}`;
+  currentPanelEntity = node.label;
+  renderPanelMessages(node.label);
+  document.getElementById('panel-msg-input').value = '';
   document.getElementById('panel').classList.add('visible');
   document.getElementById('hint').classList.add('hidden');
 }
 
 document.getElementById('panel-close').addEventListener('click', () => {
   document.getElementById('panel').classList.remove('visible');
+  currentPanelEntity = null;
+});
+
+async function sendMessage() {
+  const input = document.getElementById('panel-msg-input');
+  const text  = input.value.trim();
+  if (!text || !currentPanelEntity) return;
+  try {
+    await fetch('/message', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ entity_label: currentPanelEntity, text, author: authorName }),
+    });
+    input.value = '';
+    await fetchField(); // refresh messages
+  } catch {}
+}
+document.getElementById('panel-msg-send').addEventListener('click', sendMessage);
+document.getElementById('panel-msg-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') sendMessage();
 });
 
 // --- canvas animation ---
@@ -659,6 +756,22 @@ function drawNode(n) {
     ctx.fillStyle = `rgba(${r},${g},${bl},${alpha})`;
     ctx.font = `${Math.round(isHovered ? 11 : 9 + b * 3)}px "SF Mono",monospace`;
     ctx.fillText(n.label, n.rx + radius + 5, n.ry + 4);
+  }
+
+  // most recent message floating near entity (near zone only)
+  if (b > 0.45) {
+    const msgs = entityMessages[n.label];
+    if (msgs && msgs.length > 0) {
+      const msg  = msgs[msgs.length - 1];
+      const age  = (Date.now() - new Date(msg.created_at).getTime()) / (2 * 3600 * 1000);
+      const msgA = Math.max(0, (1 - age) * 0.55 * (b - 0.4));
+      if (msgA > 0.04) {
+        const snippet = msg.text.length > 38 ? msg.text.slice(0, 38) + '…' : msg.text;
+        ctx.fillStyle = `rgba(140,140,190,${msgA})`;
+        ctx.font = `9px "SF Mono",monospace`;
+        ctx.fillText('"' + snippet + '"', n.rx + radius + 5, n.ry + 18);
+      }
+    }
   }
 }
 
@@ -806,6 +919,7 @@ async function fetchField() {
     const f   = await fetch('/field?interest=' + enc).then(r => r.json());
     updateNodes(f, allEntities);
     updateSelfGravity(f);
+    updateMessages(f);
     document.getElementById('position').textContent       = f.position || '—';
     document.getElementById('presence-count').textContent = f.presence || 0;
     document.getElementById('conn').textContent           = 'live';
@@ -1050,6 +1164,32 @@ async fn post_encounter(
     );
     identity.save().map_err(|e| e.to_string())?;
     Ok(Json(to_summary(&identity)))
+}
+
+// --- メッセージ ---
+
+#[derive(Deserialize)]
+struct MessageRequest {
+    entity_label: String,
+    text:         String,
+    author:       Option<String>,
+}
+
+/// POST /message — entity に紐づくメッセージを投稿
+async fn post_message(
+    Json(req): Json<MessageRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let text = req.text.trim().to_string();
+    if text.is_empty() || text.len() > 280 {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let author = req.author.as_deref().unwrap_or("wanderer");
+    let author = author.trim().chars().take(24).collect::<String>();
+    let author = if author.is_empty() { "wanderer".to_string() } else { author };
+
+    identity::save_message(&req.entity_label, &text, &author)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(serde_json::json!({ "ok": true })))
 }
 
 // --- コネクタ ---
@@ -1664,6 +1804,18 @@ async fn main() {
         .allow_methods(Any)
         .allow_headers(Any);
 
+    // メッセージ自動消去タスク (30分ごとに2時間以上前のメッセージを削除)
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(1800));
+        loop {
+            interval.tick().await;
+            match identity::cleanup_old_messages(2) {
+                Ok(n) if n > 0 => tracing::info!("message cleanup: removed {} old messages", n),
+                _ => {}
+            }
+        }
+    });
+
     let app = Router::new()
         .route("/",              get(landing))
         .route("/field",         get(get_field))
@@ -1674,6 +1826,7 @@ async fn main() {
         .route("/identity/new",  get(new_identity))
         .route("/identity/:id",  get(get_identity))
         .route("/encounter",     post(post_encounter))
+        .route("/message",        post(post_message))
         .route("/connect/rss",    post(connect_rss))
         .route("/connect/url",    post(connect_url))
         .route("/feeds",          get(get_feeds))

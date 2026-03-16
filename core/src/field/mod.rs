@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use chrono::{DateTime, Utc};
 use crate::distance::Visibility;
+use crate::identity::MessageRecord;
 
 /// drift signal — 空間の流れが向かう先
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,6 +57,9 @@ pub struct FieldState {
 
     /// 動的閾値 [near_threshold, horizon_threshold]
     pub thresholds: [f32; 2],
+
+    /// near にいる entity に残された最近のメッセージ
+    pub messages: Vec<MessageRecord>,
 }
 
 impl FieldState {
@@ -69,6 +73,7 @@ impl FieldState {
             drift: Vec::new(),
             timestamp: Utc::now(),
             thresholds: [0.35, 0.65],
+            messages: vec![],
         }
     }
 
