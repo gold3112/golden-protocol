@@ -84,3 +84,50 @@ impl SpaceGraph {
             .map(|(cost, _)| cost)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_space_graph_basic() {
+        let mut sg = SpaceGraph::new();
+        let e1 = Entity::new(EntityKind::Human, "Alice");
+        let e2 = Entity::new(EntityKind::AI, "Bot");
+        let id1 = e1.id;
+        let id2 = e2.id;
+
+        sg.add_entity(e1);
+        sg.add_entity(e2);
+
+        assert!(sg.get_entity(&id1).is_some());
+        assert_eq!(sg.get_entity(&id1).unwrap().label, "Alice");
+
+        // 初期状態では繋がっていない
+        assert_eq!(sg.shortest_path(id1, id2), None);
+
+        // 関係を追加
+        sg.add_relation(id1, id2, 0.8);
+        assert_eq!(sg.shortest_path(id1, id2), Some(1));
+    }
+
+    #[test]
+    fn test_shortest_path_multi_step() {
+        let mut sg = SpaceGraph::new();
+        let a = Entity::new(EntityKind::Human, "A");
+        let b = Entity::new(EntityKind::Human, "B");
+        let c = Entity::new(EntityKind::Human, "C");
+        let id_a = a.id;
+        let id_b = b.id;
+        let id_c = c.id;
+
+        sg.add_entity(a);
+        sg.add_entity(b);
+        sg.add_entity(c);
+
+        sg.add_relation(id_a, id_b, 1.0);
+        sg.add_relation(id_b, id_c, 1.0);
+
+        assert_eq!(sg.shortest_path(id_a, id_c), Some(2));
+    }
+}

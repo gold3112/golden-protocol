@@ -8,7 +8,7 @@ import shutil
 import hashlib
 
 # サーバー設定
-BASE_URL = "http://192.168.1.5:7331"
+BASE_URL = "http://localhost:7331"
 
 # 色と装飾
 RESET  = "\033[0m"

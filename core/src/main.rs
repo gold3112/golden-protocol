@@ -6,36 +6,51 @@ mod identity;
 
 use axum::{
     extract::{Path, Query, State},
+    response::sse::{Event, KeepAlive, Sse},
     routing::{get, post},
     Json, Router,
 };
+use chrono::{DateTime, Utc};
 use distance::{compute_distance, semantic_dist, temporal_dist, DistanceWeights, DynamicThresholds};
 use field::{DriftSignal, FieldState, ObservedEntity};
 use graph::{Entity, EntityKind, SpaceGraph};
 use identity::Identity;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
+use tokio_stream::{Stream, StreamExt as _, wrappers::IntervalStream};
 use uuid::Uuid;
 
 // --- 共有状態 ---
 
 struct AppState {
-    graph:    Mutex<SpaceGraph>,
-    weights:  DistanceWeights,
+    graph:           Mutex<SpaceGraph>,
+    weights:         DistanceWeights,
     /// グローバル活動カウンタ: label -> 累計encounter数 (drift計算用)
-    activity: Mutex<HashMap<String, u32>>,
+    activity:        Mutex<HashMap<String, u32>>,
+    /// SSE接続中ユーザーのin-memory状態
+    connected_users: Mutex<HashMap<Uuid, UserPresence>>,
+}
+
+/// SSE接続中ユーザーの状態 (永続化しない)
+#[derive(Clone)]
+struct UserPresence {
+    id:           Uuid,
+    interest_vec: Vec<f32>,
+    position:     String,
+    last_seen:    DateTime<Utc>,
 }
 
 // --- リクエスト / レスポンス型 ---
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 struct FieldQuery {
     user_id:     Option<Uuid>,
     interest:    Option<String>,
     near_pct:    Option<f32>,
     horizon_pct: Option<f32>,
-    /// trueのとき、nearに存在するだけで関心ベクトルが受動的に更新される
     passive:     Option<bool>,
 }
 
@@ -57,31 +72,35 @@ struct IdentitySummary {
     interest_preview: Vec<f32>,
 }
 
-// --- ハンドラ ---
+// --- field state 計算コア (HTTP・SSE共通) ---
 
-/// GET /field
-async fn get_field(
-    State(state): State<Arc<AppState>>,
-    Query(q): Query<FieldQuery>,
-) -> Json<FieldState> {
+fn compute_field_state(state: &AppState, q: &FieldQuery) -> FieldState {
     let near_pct    = q.near_pct.unwrap_or(0.30);
     let horizon_pct = q.horizon_pct.unwrap_or(0.70);
     let passive     = q.passive.unwrap_or(false);
 
-    // identityロード
     let mut identity = q.user_id.and_then(|uid| Identity::load(&uid).ok());
 
-    // 関心ベクトル
     let user_interest = identity.as_ref()
         .map(|i| i.interest_vec.clone())
         .unwrap_or_else(|| fallback_interest(&q.interest));
 
     let tau = 86400.0_f64;
+
+    // 接続中ユーザー (自分以外) を取得 — ロックはすぐ解放
+    let other_users: Vec<UserPresence> = {
+        let users = state.connected_users.lock().unwrap();
+        users.values()
+            .filter(|u| q.user_id.map_or(true, |id| u.id != id))
+            .cloned()
+            .collect()
+    };
+
     let graph    = state.graph.lock().unwrap();
     let weights  = &state.weights;
     let activity = state.activity.lock().unwrap();
 
-    // Pass 1: 全エンティティの距離を計算
+    // Pass 1: グラフエンティティの距離計算
     let mut scored: Vec<(ObservedEntity, f32, Option<Vec<f32>>)> = graph.graph
         .node_indices()
         .map(|idx| {
@@ -91,7 +110,6 @@ async fn get_field(
                 .map(|emb| semantic_dist(emb, &user_interest))
                 .unwrap_or(0.5);
 
-            // relational: identity の encounter 履歴から計算
             let rel = identity.as_ref()
                 .map(|id| id.relational_dist(&entity.label))
                 .unwrap_or(1.0);
@@ -123,6 +141,25 @@ async fn get_field(
         })
         .collect();
 
+    // 接続中ユーザーを動的エンティティとして追加
+    // temporal=0.0 (今まさにここにいる), relational=0.5 (未知)
+    for user in &other_users {
+        let sem = semantic_dist(&user.interest_vec, &user_interest);
+        let att = distance::attention_dist(&user_interest, &user.interest_vec);
+        let d   = compute_distance(sem, 0.5, 0.5, 0.0, att, weights);
+        let short_id = &user.id.to_string()[..8];
+        scored.push((
+            ObservedEntity {
+                id:         user.id,
+                label:      format!("wanderer_{}", short_id),
+                distance:   d,
+                visibility: Default::default(),
+            },
+            d,
+            Some(user.interest_vec.clone()),
+        ));
+    }
+
     // Pass 2: 動的閾値
     let all_distances: Vec<f32> = scored.iter().map(|(_, d, _)| *d).collect();
     let thresholds = DynamicThresholds::from_distances(&all_distances, near_pct, horizon_pct);
@@ -150,6 +187,11 @@ async fn get_field(
     field.presence = field.near.len() + field.horizon.len();
     field.compute_density();
 
+    // position = near 上位3件のラベルから文脈を導く (最小実装: 最近傍のラベルを使用)
+    if let Some(nearest) = field.near.first() {
+        field.position = nearest.label.clone();
+    }
+
     // Pass 3: drift — horizonの中でグローバル活動が高いものを抽出
     let mut drift_candidates: Vec<(String, u32)> = field.horizon.iter()
         .map(|e| {
@@ -175,12 +217,77 @@ async fn get_field(
 
     if passive {
         if let Some(ref mut id) = identity {
-            id.passive_absorb(near_embeddings, "plaza");
+            id.passive_absorb(near_embeddings, &field.position);
             let _ = id.save();
         }
     }
 
-    Json(field)
+    field
+}
+
+// --- ハンドラ ---
+
+/// GET /field
+async fn get_field(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<FieldQuery>,
+) -> Json<FieldState> {
+    Json(compute_field_state(&state, &q))
+}
+
+/// GET /field/stream — SSE: field stateをリアルタイムにプッシュ
+/// 接続中はこのユーザーが他ユーザーの near/horizon に現れる
+async fn stream_field(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<FieldQuery>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let user_id = q.user_id.unwrap_or_else(Uuid::new_v4);
+
+    // 接続時: ユーザーを登録
+    let interest_vec = q.user_id
+        .and_then(|uid| Identity::load(&uid).ok())
+        .map(|i| i.interest_vec.clone())
+        .unwrap_or_else(|| fallback_interest(&q.interest));
+
+    {
+        let mut users = state.connected_users.lock().unwrap();
+        users.insert(user_id, UserPresence {
+            id:           user_id,
+            interest_vec: interest_vec.clone(),
+            position:     "plaza".to_string(),
+            last_seen:    Utc::now(),
+        });
+        tracing::info!("user {} connected ({} total)", user_id, users.len());
+    }
+
+    let state_c = Arc::clone(&state);
+    let q_c     = q.clone();
+
+    let stream = IntervalStream::new(tokio::time::interval(Duration::from_secs(2)))
+        .map(move |_| {
+            // last_seen を更新 (これが止まると cleanup タスクが除去する)
+            {
+                let mut users = state_c.connected_users.lock().unwrap();
+                if let Some(u) = users.get_mut(&user_id) {
+                    u.last_seen = Utc::now();
+                }
+            }
+
+            let field = compute_field_state(&state_c, &q_c);
+
+            // position を connected_users に反映 (他ユーザーから見える位置を更新)
+            {
+                let mut users = state_c.connected_users.lock().unwrap();
+                if let Some(u) = users.get_mut(&user_id) {
+                    u.position = field.position.clone();
+                }
+            }
+
+            let json = serde_json::to_string(&field).unwrap_or_default();
+            Ok::<Event, Infallible>(Event::default().event("field").data(json))
+        });
+
+    Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
 /// GET /identity/new
@@ -200,6 +307,21 @@ async fn get_identity(Path(id): Path<Uuid>) -> Result<Json<IdentitySummary>, Str
     Identity::load(&id)
         .map(|i| Json(to_summary(&i)))
         .map_err(|_| format!("identity {} not found", id))
+}
+
+/// GET /presence — 現在の接続ユーザー一覧
+async fn get_presence(
+    State(state): State<Arc<AppState>>,
+) -> Json<serde_json::Value> {
+    let users = state.connected_users.lock().unwrap();
+    let list: Vec<serde_json::Value> = users.values().map(|u| {
+        serde_json::json!({
+            "id":       u.id,
+            "position": u.position,
+            "last_seen": u.last_seen.to_rfc3339(),
+        })
+    }).collect();
+    Json(serde_json::json!({ "count": list.len(), "users": list }))
 }
 
 /// POST /encounter — 明示的encounter記録 + グローバル活動更新
@@ -286,16 +408,38 @@ async fn main() {
     }
 
     let state = Arc::new(AppState {
-        graph:    Mutex::new(space),
-        weights:  DistanceWeights::default(),
-        activity: Mutex::new(HashMap::new()),
+        graph:           Mutex::new(space),
+        weights:         DistanceWeights::default(),
+        activity:        Mutex::new(HashMap::new()),
+        connected_users: Mutex::new(HashMap::new()),
     });
 
+    // 切断ユーザーの cleanup タスク (15秒以上 last_seen が更新されなければ除去)
+    {
+        let state_c = Arc::clone(&state);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(30));
+            loop {
+                interval.tick().await;
+                let cutoff = Utc::now() - chrono::Duration::seconds(15);
+                let mut users = state_c.connected_users.lock().unwrap();
+                let before = users.len();
+                users.retain(|_, u| u.last_seen > cutoff);
+                let removed = before - users.len();
+                if removed > 0 {
+                    tracing::info!("presence cleanup: removed {} stale users ({} remain)", removed, users.len());
+                }
+            }
+        });
+    }
+
     let app = Router::new()
-        .route("/field",        get(get_field))
-        .route("/identity/new", get(new_identity))
-        .route("/identity/:id", get(get_identity))
-        .route("/encounter",    post(post_encounter))
+        .route("/field",         get(get_field))
+        .route("/field/stream",  get(stream_field))
+        .route("/presence",      get(get_presence))
+        .route("/identity/new",  get(new_identity))
+        .route("/identity/:id",  get(get_identity))
+        .route("/encounter",     post(post_encounter))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:7331").await.unwrap();

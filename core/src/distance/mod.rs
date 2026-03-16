@@ -125,6 +125,7 @@ impl DynamicThresholds {
 }
 
 fn percentile(sorted: &[f32], p: f32) -> f32 {
+    if sorted.is_empty() { return 0.0; }
     let idx = (p * (sorted.len() - 1) as f32).round() as usize;
     sorted[idx.min(sorted.len() - 1)]
 }
@@ -142,4 +143,56 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
         return 0.0;
     }
     (dot / (norm_a * norm_b)).clamp(-1.0, 1.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cosine_similarity() {
+        let a = vec![1.0, 0.0, 0.0];
+        let b = vec![1.0, 0.0, 0.0];
+        assert!((cosine_similarity(&a, &b) - 1.0).abs() < 1e-6);
+
+        let c = vec![0.0, 1.0, 0.0];
+        assert!((cosine_similarity(&a, &c) - 0.0).abs() < 1e-6);
+
+        let d = vec![-1.0, 0.0, 0.0];
+        assert!((cosine_similarity(&a, &d) + 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_relational_dist() {
+        assert_eq!(relational_dist(None), 1.0);
+        assert_eq!(relational_dist(Some(0)), 0.0);
+        assert!(relational_dist(Some(1)) > 0.0);
+        assert!(relational_dist(Some(10)) > relational_dist(Some(1)));
+    }
+
+    #[test]
+    fn test_dynamic_thresholds() {
+        let dists = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9];
+        let dt = DynamicThresholds::from_distances(&dists, 0.3, 0.7);
+        
+        // 0.3 percentile of [0.1...0.9] (9 elements)
+        // index = round(0.3 * 8) = 2 -> 0.3
+        assert!((dt.near - 0.3).abs() < 1e-6);
+        // 0.7 percentile
+        // index = round(0.7 * 8) = 6 -> 0.7
+        assert!((dt.horizon - 0.7).abs() < 1e-6);
+
+        assert_eq!(dt.classify(0.2), Visibility::Near);
+        assert_eq!(dt.classify(0.5), Visibility::Horizon);
+        assert_eq!(dt.classify(0.8), Visibility::Beyond);
+    }
+
+    #[test]
+    fn test_compute_distance_clamping() {
+        let weights = DistanceWeights::default();
+        let d = compute_distance(2.0, 2.0, 2.0, 2.0, 2.0, &weights);
+        assert!(d <= 1.0);
+        let d2 = compute_distance(-1.0, -1.0, -1.0, -1.0, -1.0, &weights);
+        assert!(d2 >= 0.0);
+    }
 }

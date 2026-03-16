@@ -304,20 +304,44 @@ nearとの出会いを明示的に記録。関心ベクトルを更新 (alpha=0.
 - [x] CLIクライアント (near/horizon/drift表示, identity対応)
 - [x] 2D空間マップクライアント (距離を座標に変換、ターミナルに描画)
 - [x] 同一LAN上の別デバイスからアクセス確認済み
+- [x] **position の動的化** — near最近傍エンティティのラベルから文脈として自動生成
+- [x] **複数ユーザーのpresence** — SSE接続中ユーザーが `wanderer_*` として near/horizon に出現
+- [x] **SSEストリーム** (`GET /field/stream`) — 2秒ごとに field state をプッシュ配信
+- [x] **presence エンドポイント** (`GET /presence`) — 接続中ユーザー一覧
 
 ### 未実装
 
-- [ ] **position の実装** — 現在は全員 `plaza` 固定。移動とは何かが未定義
-- [ ] **複数ユーザーのpresence** — 他の人の気配がまだない
 - [ ] **activity vector** — エンティティの活動状態のリアルタイム更新
 - [ ] **空間が育つ仕組み** — エンティティが動的に増減しない
+- [ ] **identity の永続化改善** — ローカルファイルからDBへ
+- [ ] **インターネット公開** — LAN外からアクセス可能にする
 
 ### 未解決の設計問題
 
-- **position** の定義 — 文脈ベースの座標系をどう設計するか
 - **移動** の概念 — interestを変えることが移動なのか、それとも別の概念か
 - **distance の非対称性** — attention は一方向。空間は誰から見るかで形が変わる
 
+### APIリファレンス追記
+
+#### `GET /field/stream`
+
+SSEストリーム。2秒ごとに `field` イベントとして field state を配信。
+接続中はこのユーザーが他ユーザーの near/horizon に `wanderer_*` として現れる。
+クエリパラメータは `GET /field` と同じ。
+
+#### `GET /presence`
+
+接続中ユーザーの一覧を返す。
+
+```json
+{
+  "count": 2,
+  "users": [
+    { "id": "uuid", "position": "philosophy_debate", "last_seen": "..." }
+  ]
+}
+```
+
 ---
 
-*最終更新: 2026-03-16 (prototype v1 完成)*
+*最終更新: 2026-03-16 (prototype v2 — multi-user presence + SSE)*
