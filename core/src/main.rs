@@ -314,12 +314,12 @@ static LANDING_HTML: &str = r##"<!DOCTYPE html>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
-  background: #07070f;
+  background: #06060f;
   font-family: 'SF Mono','Fira Code','Menlo',monospace;
   font-size: 12px;
   height: 100vh;
   overflow: hidden;
-  cursor: default;
+  cursor: none;
 }
 canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
 
@@ -327,9 +327,9 @@ canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
 #entry {
   position: fixed; inset: 0;
   display: flex; align-items: center; justify-content: center;
-  background: rgba(7,7,15,0.92);
+  background: rgba(6,6,15,0.82);
   z-index: 100;
-  transition: opacity 0.8s ease;
+  transition: opacity 1.2s ease;
 }
 #entry.hidden { opacity: 0; pointer-events: none; }
 #entry-box { text-align: center; max-width: 420px; padding: 0 24px; }
@@ -396,12 +396,14 @@ canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
 
 /* --- entity panel --- */
 #panel {
-  position: fixed; right: 32px; top: 50%; transform: translateY(-50%);
-  width: 240px; background: rgba(10,10,22,0.97);
-  border: 1px solid #1e1e38; padding: 20px;
+  position: fixed;
+  width: 220px; background: rgba(8,8,18,0.93);
+  border: 1px solid #18182e; padding: 18px;
   pointer-events: auto;
-  opacity: 0; transition: opacity 0.3s ease;
-  max-height: 80vh; overflow-y: auto;
+  opacity: 0; transition: opacity 0.25s ease;
+  max-height: 70vh; overflow-y: auto;
+  backdrop-filter: blur(6px);
+  box-shadow: 0 0 40px rgba(0,0,0,0.6);
 }
 #panel.visible { opacity: 1; }
 #panel-kind { font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: #404060; margin-bottom: 8px; }
@@ -444,11 +446,17 @@ canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
 /* --- hint (first time) --- */
 #hint {
   position: fixed; bottom: 64px; left: 50%; transform: translateX(-50%);
-  font-size: 10px; color: #282848; letter-spacing: 0.12em;
-  pointer-events: none; transition: opacity 1s ease;
+  font-size: 10px; color: #252545; letter-spacing: 0.14em;
+  pointer-events: none; transition: opacity 1.5s ease;
   white-space: nowrap;
 }
 #hint.hidden { opacity: 0; }
+
+/* entry breathing */
+@keyframes breathe {
+  0%,100% { opacity: 0.7; } 50% { opacity: 1; }
+}
+#entry-q { animation: breathe 4s ease-in-out infinite; }
 /* event countdown */
 .evt-time { font-size: 9px; color: rgba(255,150,70,0.7); letter-spacing: 0.08em; }
 </style>
@@ -506,19 +514,34 @@ canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
   </div>
 </div>
 
-<div id="hint">click anything nearby to explore</div>
+<div id="hint">move toward something. the space responds.</div>
 
 <script>
 const canvas = document.getElementById('c');
 const ctx    = canvas.getContext('2d');
 let W, H, cx, cy;
-let selfX, selfY; // gold cross position — drifts via field gravity
+let selfX, selfY;
+let mouseX = -999, mouseY = -999;
+
+// ambient particles
+let particles = [];
+function initParticles() {
+  particles = Array.from({length: 40}, () => ({
+    x:  Math.random() * W,
+    y:  Math.random() * H,
+    vx: (Math.random() - 0.5) * 0.22,
+    vy: (Math.random() - 0.5) * 0.22,
+    r:  0.4 + Math.random() * 0.9,
+    a:  0.012 + Math.random() * 0.035,
+  }));
+}
 
 function resize() {
   W = canvas.width  = window.innerWidth;
   H = canvas.height = window.innerHeight;
   cx = W / 2; cy = H / 2;
   if (selfX === undefined) { selfX = cx; selfY = cy; }
+  initParticles();
 }
 window.addEventListener('resize', resize);
 resize();
@@ -589,13 +612,20 @@ function updateNodes(field, allEntities) {
   });
 }
 
-// update self gravity toward near entity centroid
+// update self gravity — blends mouse position (walk) + near entity centroid (field pull)
 function updateSelfGravity(field) {
   const near = field.near || [];
-  const maxDrift = Math.min(W, H) * 0.10;
+  const maxDrift = Math.min(W, H) * 0.16;
+  // mouse target: you "walk" by moving the cursor
+  const hasMouse = mouseX > 0;
+  const mx = hasMouse ? cx + Math.max(-maxDrift, Math.min(maxDrift, (mouseX - cx) * 0.45)) : cx;
+  const my = hasMouse ? cy + Math.max(-maxDrift, Math.min(maxDrift, (mouseY - cy) * 0.45)) : cy;
+
   if (near.length === 0) {
-    selfX = lerp(selfX, cx, 0.002);
-    selfY = lerp(selfY, cy, 0.002);
+    const tx = hasMouse ? mx : cx;
+    const ty = hasMouse ? my : cy;
+    selfX = lerp(selfX, tx, 0.004);
+    selfY = lerp(selfY, ty, 0.004);
     return;
   }
   let wx = 0, wy = 0, wt = 0;
@@ -608,8 +638,11 @@ function updateSelfGravity(field) {
   if (wt > 0) {
     const gx = cx + Math.max(-maxDrift, Math.min(maxDrift, (wx / wt - cx) * 0.35));
     const gy = cy + Math.max(-maxDrift, Math.min(maxDrift, (wy / wt - cy) * 0.35));
-    selfX = lerp(selfX, gx, 0.0025);
-    selfY = lerp(selfY, gy, 0.0025);
+    // 55% mouse walk + 45% field gravity
+    const tx = lerp(gx, mx, hasMouse ? 0.55 : 0);
+    const ty = lerp(gy, my, hasMouse ? 0.55 : 0);
+    selfX = lerp(selfX, tx, 0.003);
+    selfY = lerp(selfY, ty, 0.003);
   }
 }
 
@@ -619,12 +652,12 @@ function lerp(a, b, t) { return a + (b - a) * t; }
 let hoveredNode = null;
 
 canvas.addEventListener('mousemove', e => {
+  mouseX = e.clientX;
+  mouseY = e.clientY;
   const hit = findNearestNode(e.clientX, e.clientY, 44);
-  if (hit !== hoveredNode) {
-    hoveredNode = hit;
-    canvas.style.cursor = hit ? 'pointer' : 'default';
-  }
+  if (hit !== hoveredNode) hoveredNode = hit;
 });
+canvas.addEventListener('mouseleave', () => { mouseX = -999; mouseY = -999; });
 
 canvas.addEventListener('click', e => {
   const hit = findNearestNode(e.clientX, e.clientY, 44);
@@ -682,6 +715,17 @@ function renderPanelMessages(label) {
 }
 
 function showPanel(node) {
+  const panel = document.getElementById('panel');
+  // position panel near the entity, clamped to screen
+  const PW = 224, PH = 300;
+  const ex = node.rx ?? node.x, ey = node.ry ?? node.y;
+  let left = ex + 20, top = ey - 50;
+  if (left + PW > W - 16) left = ex - PW - 20;
+  left = Math.max(12, left);
+  top  = Math.max(12, Math.min(H - PH - 12, top));
+  panel.style.left = left + 'px';
+  panel.style.top  = top  + 'px';
+
   document.getElementById('panel-kind').textContent  = node.kind;
   document.getElementById('panel-label').textContent = node.label;
   const q = encodeURIComponent(node.label);
@@ -689,7 +733,7 @@ function showPanel(node) {
   currentPanelEntity = node.label;
   renderPanelMessages(node.label);
   document.getElementById('panel-msg-input').value = '';
-  document.getElementById('panel').classList.add('visible');
+  panel.classList.add('visible');
   document.getElementById('hint').classList.add('hidden');
 }
 
@@ -717,27 +761,78 @@ document.getElementById('panel-msg-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') sendMessage();
 });
 
+// --- ambient atmosphere ---
+function drawParticles() {
+  particles.forEach(p => {
+    p.x += p.vx; p.y += p.vy;
+    if (p.x < 0) p.x += W; if (p.x > W) p.x -= W;
+    if (p.y < 0) p.y += H; if (p.y > H) p.y -= H;
+    ctx.fillStyle = `rgba(180,155,70,${p.a})`;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+  });
+}
+
+function drawVignette() {
+  const grd = ctx.createRadialGradient(cx, cy, Math.min(W,H)*0.22, cx, cy, Math.max(W,H)*0.78);
+  grd.addColorStop(0, 'rgba(0,0,0,0)');
+  grd.addColorStop(1, 'rgba(4,4,12,0.80)');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, W, H);
+}
+
+function drawConstellation() {
+  const nearNodes = Object.values(nodes).filter(n => n.b > 0.45 && n.rx);
+  for (let i = 0; i < nearNodes.length; i++) {
+    for (let j = i + 1; j < nearNodes.length; j++) {
+      const a = nearNodes[i], b = nearNodes[j];
+      const d = Math.hypot(a.rx - b.rx, a.ry - b.ry);
+      if (d > 220) continue;
+      const alpha = (1 - d / 220) * 0.055 * Math.min(a.b, b.b);
+      ctx.strokeStyle = `rgba(90,90,150,${alpha})`;
+      ctx.lineWidth = 0.5;
+      ctx.setLineDash([]);
+      ctx.beginPath(); ctx.moveTo(a.rx, a.ry); ctx.lineTo(b.rx, b.ry); ctx.stroke();
+    }
+  }
+}
+
+function drawCursor() {
+  if (mouseX < 0) return;
+  const pulse = 0.18 + 0.08 * Math.sin(clock * 3.5);
+  ctx.strokeStyle = `rgba(212,175,55,${pulse})`;
+  ctx.lineWidth = 0.8;
+  ctx.setLineDash([]);
+  ctx.beginPath(); ctx.arc(mouseX, mouseY, 9, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = `rgba(212,175,55,${pulse * 1.8})`;
+  ctx.beginPath(); ctx.arc(mouseX, mouseY, 1.5, 0, Math.PI * 2); ctx.fill();
+}
+
 // --- canvas animation ---
 let clock = 0;
 function animate() {
   requestAnimationFrame(animate);
   clock += 0.016;
 
-  ctx.fillStyle = 'rgba(7,7,15,0.18)';
+  // longer trails for dreamy atmosphere
+  ctx.fillStyle = 'rgba(6,6,15,0.11)';
   ctx.fillRect(0, 0, W, H);
 
+  drawParticles();
   drawRings();
   drawBirths();
   drawBursts();
 
   Object.values(nodes).forEach(n => {
-    if (n.tx !== undefined) { n.x = lerp(n.x, n.tx, 0.035); n.y = lerp(n.y, n.ty, 0.035); }
+    if (n.tx !== undefined) { n.x = lerp(n.x, n.tx, 0.032); n.y = lerp(n.y, n.ty, 0.032); }
     n.b = lerp(n.b, n.tb || 0, 0.04);
     drawNode(n);
   });
 
+  drawConstellation();
   drawWanderers();
   drawSelf();
+  drawVignette();   // fog over everything
+  drawCursor();     // cursor on top
 }
 
 function drawNode(n) {
@@ -783,10 +878,11 @@ function drawNode(n) {
   ctx.arc(n.rx, n.ry, radius, 0, Math.PI * 2);
   ctx.fill();
 
-  if (b > 0.12 || isHovered) {
-    const alpha = isHovered ? 1 : b * 0.75;
+  // label reveals gradually as you approach — distant entities are anonymous dots
+  if (isHovered || b > 0.48) {
+    const alpha = isHovered ? 0.88 : Math.min(0.75, (b - 0.48) * 3.2);
     ctx.fillStyle = `rgba(${r},${g},${bl},${alpha})`;
-    ctx.font = `${Math.round(isHovered ? 11 : 9 + b * 3)}px "SF Mono",monospace`;
+    ctx.font = `${Math.round(isHovered ? 11 : 8 + b * 3)}px "SF Mono",monospace`;
     ctx.fillText(n.label, n.rx + radius + 5, n.ry + 4);
   }
 
