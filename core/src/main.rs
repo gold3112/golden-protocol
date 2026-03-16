@@ -596,6 +596,7 @@ async fn post_entity(
         last_active: entity.last_active.to_rfc3339(),
     };
 
+    let _ = identity::save_entity(&entity);
     state.graph.lock().unwrap().add_entity(entity);
     tracing::info!("entity added: {}", req.label);
     Ok(Json(summary))
@@ -608,6 +609,7 @@ async fn delete_entity(
 ) -> Result<Json<serde_json::Value>, String> {
     let removed = state.graph.lock().unwrap().remove_entity(&id);
     if removed {
+        let _ = identity::delete_entity_db(&id);
         tracing::info!("entity removed: {}", id);
         Ok(Json(serde_json::json!({ "removed": id })))
     } else {
@@ -743,10 +745,13 @@ async fn connect_rss(
             let mut entity      = Entity::new(EntityKind::Stream, &label);
             entity.activity_vec = Some(emb.clone());
             entity.embedding    = Some(emb);
+            let _ = identity::save_entity(&entity);
             graph.add_entity(entity);
             labels.push(label);
         }
     }
+    drop(graph);
+    let _ = identity::save_feed(&req.url, max);
 
     tracing::info!("rss connect: added {} entities from {}", labels.len(), req.url);
     Ok(Json(ConnectResult { added: labels.len(), labels }))
@@ -803,10 +808,20 @@ async fn connect_url(
     let mut entity      = Entity::new(EntityKind::Data, &label);
     entity.activity_vec = Some(emb.clone());
     entity.embedding    = Some(emb);
+    let _ = identity::save_entity(&entity);
     state.graph.lock().unwrap().add_entity(entity);
 
     tracing::info!("url connect: added '{}' from {}", label, req.url);
     Ok(Json(ConnectResult { added: 1, labels: vec![label] }))
+}
+
+/// GET /feeds — 登録済み RSS フィード一覧
+async fn get_feeds() -> Json<serde_json::Value> {
+    let feeds = identity::load_feeds();
+    let list: Vec<serde_json::Value> = feeds.into_iter().map(|(url, max)| {
+        serde_json::json!({ "url": url, "max_items": max })
+    }).collect();
+    Json(serde_json::json!({ "count": list.len(), "feeds": list }))
 }
 
 // --- ユーティリティ ---
@@ -839,23 +854,35 @@ async fn main() {
     println!("embedding model ready.");
 
     let mut space = SpaceGraph::new();
-    let labels = vec![
-        ("wandering_ai",        EntityKind::AI),
-        ("knowledge_stream",    EntityKind::Stream),
-        ("gathering",           EntityKind::Event),
-        ("deep_archive",        EntityKind::Data),
-        ("distant_signal",      EntityKind::Stream),
-        ("philosophy_debate",   EntityKind::Event),
-        ("music_history",       EntityKind::Data),
-        ("live_coding_session", EntityKind::Event),
-    ];
-    let texts: Vec<&str> = labels.iter().map(|(l, _)| *l).collect();
-    let embeddings = embedding::embed_batch(texts).expect("embed failed");
-    for ((label, kind), emb) in labels.into_iter().zip(embeddings) {
-        let mut entity = Entity::new(kind, label);
-        entity.activity_vec = Some(emb.clone()); // 初期 activity = 自身の意味ベクトル
-        entity.embedding    = Some(emb);
-        space.add_entity(entity);
+
+    // DB からエンティティをロード。なければデフォルトを生成して保存
+    let saved = identity::load_all_entities();
+    if saved.is_empty() {
+        let defaults = vec![
+            ("wandering_ai",        EntityKind::AI),
+            ("knowledge_stream",    EntityKind::Stream),
+            ("gathering",           EntityKind::Event),
+            ("deep_archive",        EntityKind::Data),
+            ("distant_signal",      EntityKind::Stream),
+            ("philosophy_debate",   EntityKind::Event),
+            ("music_history",       EntityKind::Data),
+            ("live_coding_session", EntityKind::Event),
+        ];
+        let texts: Vec<&str> = defaults.iter().map(|(l, _)| *l).collect();
+        let embeddings = embedding::embed_batch(texts).expect("embed failed");
+        for ((label, kind), emb) in defaults.into_iter().zip(embeddings) {
+            let mut entity = Entity::new(kind, label);
+            entity.activity_vec = Some(emb.clone());
+            entity.embedding    = Some(emb);
+            let _ = identity::save_entity(&entity);
+            space.add_entity(entity);
+        }
+        tracing::info!("initialized default entities");
+    } else {
+        for entity in saved {
+            space.add_entity(entity);
+        }
+        tracing::info!("loaded {} entities from DB", space.graph.node_count());
     }
 
     // 60 req/分、バースト最大 10
@@ -889,6 +916,59 @@ async fn main() {
         });
     }
 
+    // RSS 自動取り込みタスク (1時間ごと)
+    {
+        let state_c = Arc::clone(&state);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(3600));
+            loop {
+                interval.tick().await;
+                let feeds = identity::load_feeds();
+                if feeds.is_empty() { continue; }
+                tracing::info!("rss auto-ingest: processing {} feeds", feeds.len());
+                for (url, max) in feeds {
+                    let bytes = match async {
+                        let r = reqwest::get(&url).await?;
+                        r.bytes().await
+                    }.await {
+                        Ok(b) => b,
+                        Err(e) => { tracing::warn!("rss fetch failed {}: {}", url, e); continue; }
+                    };
+                    let channel = match rss::Channel::read_from(&bytes[..]) {
+                        Ok(c) => c,
+                        Err(e) => { tracing::warn!("rss parse failed {}: {}", url, e); continue; }
+                    };
+                    let mut added = 0;
+                    for item in channel.items().iter().take(max) {
+                        let title = item.title().unwrap_or("untitled").to_string();
+                        let desc  = item.description().unwrap_or("").to_string();
+                        let text  = scraper::Html::parse_fragment(&format!("{} {}", title, desc))
+                            .root_element().text().collect::<String>();
+                        let text  = text.trim().chars().take(500).collect::<String>();
+                        let label = title.chars().take(60).collect::<String>();
+                        {
+                            let graph = state_c.graph.lock().unwrap();
+                            if graph.graph.node_indices().any(|i| graph.graph[i].label == label) {
+                                continue;
+                            }
+                        }
+                        if let Ok(emb) = embedding::embed(&text) {
+                            let mut entity      = Entity::new(EntityKind::Stream, &label);
+                            entity.activity_vec = Some(emb.clone());
+                            entity.embedding    = Some(emb);
+                            let _ = identity::save_entity(&entity);
+                            state_c.graph.lock().unwrap().add_entity(entity);
+                            added += 1;
+                        }
+                    }
+                    if added > 0 {
+                        tracing::info!("rss auto-ingest: +{} from {}", added, url);
+                    }
+                }
+            }
+        });
+    }
+
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
@@ -906,6 +986,7 @@ async fn main() {
         .route("/encounter",     post(post_encounter))
         .route("/connect/rss",   post(connect_rss))
         .route("/connect/url",   post(connect_url))
+        .route("/feeds",         get(get_feeds))
         .layer(middleware::from_fn_with_state(Arc::clone(&state), rate_limit))
         .layer(cors)
         .with_state(state);

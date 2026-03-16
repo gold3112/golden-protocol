@@ -5,6 +5,9 @@ use serde::{Deserialize, Serialize};
 use std::sync::{Mutex, OnceLock};
 use uuid::Uuid;
 
+// graph モジュールの Entity/EntityKind を参照
+use crate::graph::{Entity, EntityKind};
+
 const DB_PATH:   &str = "/GOLDEN_PROTOCOL/identities.db";
 const STORE_DIR: &str = "/GOLDEN_PROTOCOL/identities"; // 移行元
 
@@ -19,6 +22,19 @@ pub fn init_db() -> Result<()> {
         CREATE TABLE IF NOT EXISTS identities (
             id   TEXT PRIMARY KEY,
             data TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS entities (
+            id           TEXT PRIMARY KEY,
+            label        TEXT NOT NULL UNIQUE,
+            kind         TEXT NOT NULL,
+            embedding    TEXT NOT NULL,
+            activity_vec TEXT,
+            last_active  TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS rss_feeds (
+            url       TEXT PRIMARY KEY,
+            max_items INTEGER NOT NULL DEFAULT 20,
+            added_at  TEXT NOT NULL
         );
     ")?;
     DB.set(Mutex::new(conn)).ok();
@@ -170,4 +186,97 @@ impl Identity {
         self.position  = position.to_string();
         self.last_seen = Utc::now();
     }
+}
+
+// --- エンティティ永続化 ---
+
+pub fn save_entity(entity: &Entity) -> Result<()> {
+    let emb  = serde_json::to_string(&entity.embedding)?;
+    let act  = entity.activity_vec.as_ref().map(|v| serde_json::to_string(v)).transpose()?;
+    let kind = format!("{:?}", entity.kind);
+    db().execute(
+        "INSERT OR REPLACE INTO entities (id, label, kind, embedding, activity_vec, last_active)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            entity.id.to_string(),
+            entity.label,
+            kind,
+            emb,
+            act,
+            entity.last_active.to_rfc3339(),
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn delete_entity_db(id: &Uuid) -> Result<()> {
+    db().execute("DELETE FROM entities WHERE id = ?1", params![id.to_string()])?;
+    Ok(())
+}
+
+pub fn load_all_entities() -> Vec<Entity> {
+    let conn = db();
+    let mut stmt = match conn.prepare(
+        "SELECT id, label, kind, embedding, activity_vec, last_active FROM entities"
+    ) {
+        Ok(s) => s,
+        Err(_) => return vec![],
+    };
+
+    let rows = match stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+            row.get::<_, Option<String>>(4)?,
+            row.get::<_, String>(5)?,
+        ))
+    }) {
+        Ok(r) => r,
+        Err(_) => return vec![],
+    };
+    rows.filter_map(|r| r.ok())
+    .filter_map(|(id, label, kind, emb, act, last_active)| {
+        let id  = id.parse::<Uuid>().ok()?;
+        let kind = match kind.as_str() {
+            "Human"   => EntityKind::Human,
+            "AI"      => EntityKind::AI,
+            "Service" => EntityKind::Service,
+            "Stream"  => EntityKind::Stream,
+            "Event"   => EntityKind::Event,
+            _         => EntityKind::Data,
+        };
+        let embedding:    Option<Vec<f32>> = serde_json::from_str(&emb).ok();
+        let activity_vec: Option<Vec<f32>> = act.and_then(|a| serde_json::from_str(&a).ok());
+        let last_active = last_active.parse::<DateTime<Utc>>().unwrap_or_else(|_| Utc::now());
+
+        Some(Entity { id, kind, label, embedding, activity_vec, last_active })
+    })
+    .collect()
+}
+
+// --- RSS フィード登録 ---
+
+pub fn save_feed(url: &str, max_items: usize) -> Result<()> {
+    db().execute(
+        "INSERT OR REPLACE INTO rss_feeds (url, max_items, added_at) VALUES (?1, ?2, ?3)",
+        params![url, max_items as i64, Utc::now().to_rfc3339()],
+    )?;
+    Ok(())
+}
+
+pub fn load_feeds() -> Vec<(String, usize)> {
+    let conn = db();
+    let mut stmt = match conn.prepare("SELECT url, max_items FROM rss_feeds") {
+        Ok(s) => s,
+        Err(_) => return vec![],
+    };
+    let rows = match stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))) {
+        Ok(r) => r,
+        Err(_) => return vec![],
+    };
+    rows.filter_map(|r| r.ok())
+        .map(|(url, max)| (url, max as usize))
+        .collect()
 }
