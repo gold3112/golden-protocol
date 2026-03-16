@@ -21,6 +21,8 @@ function save() {
   if (!text) return;
   try {
     chrome.storage.session.set({ pageText: text, pageUrl: location.href });
+    // background.js に通知 — ポップアップが閉じていても passive 吸収が走る
+    chrome.runtime.sendMessage({ type: 'PAGE_CONTEXT', text, url: location.href });
   } catch (_) {}
 }
 
