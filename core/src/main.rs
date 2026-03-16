@@ -462,11 +462,13 @@ canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
 const canvas = document.getElementById('c');
 const ctx    = canvas.getContext('2d');
 let W, H, cx, cy;
+let selfX, selfY; // gold cross position — drifts via field gravity
 
 function resize() {
   W = canvas.width  = window.innerWidth;
   H = canvas.height = window.innerHeight;
   cx = W / 2; cy = H / 2;
+  if (selfX === undefined) { selfX = cx; selfY = cy; }
 }
 window.addEventListener('resize', resize);
 resize();
@@ -496,6 +498,9 @@ const KIND_COLOR = {
   Service: [160, 160, 200],
 };
 
+// birth ripple queue: { x, y, t, r, g, b }
+const births = [];
+
 function updateNodes(field, allEntities) {
   const distMap = {};
   (field.near    || []).forEach(e => distMap[e.label] = { d: e.distance, zone: 'near' });
@@ -512,22 +517,55 @@ function updateNodes(field, allEntities) {
     const tb    = zone === 'near' ? 1.0 : zone === 'horizon' ? 0.35 : 0.08;
 
     if (!nodes[e.label]) {
-      nodes[e.label] = { x: tx, y: ty, b: 0, kind: e.kind, label: e.label };
+      nodes[e.label] = {
+        x: tx, y: ty, b: 0, kind: e.kind, label: e.label,
+        // organic drift params — unique per entity
+        driftPhase: Math.random() * Math.PI * 2,
+        driftFreq:  0.28 + Math.random() * 0.35,
+        driftAmp:   4 + Math.random() * 5,
+      };
+      // birth ripple when entering visible space
+      if (zone !== 'beyond') {
+        const [cr, cg, cb] = KIND_COLOR[e.kind] || [140, 140, 190];
+        births.push({ x: tx, y: ty, t: 0, r: cr, g: cg, b: cb });
+      }
     }
     const n = nodes[e.label];
     n.tx = tx; n.ty = ty; n.tb = tb; n.kind = e.kind;
   });
 }
 
+// update self gravity toward near entity centroid
+function updateSelfGravity(field) {
+  const near = field.near || [];
+  const maxDrift = Math.min(W, H) * 0.10;
+  if (near.length === 0) {
+    selfX = lerp(selfX, cx, 0.002);
+    selfY = lerp(selfY, cy, 0.002);
+    return;
+  }
+  let wx = 0, wy = 0, wt = 0;
+  near.forEach(e => {
+    const n = nodes[e.label];
+    if (!n) return;
+    const w = Math.max(0, 1 - e.distance);
+    wx += n.x * w; wy += n.y * w; wt += w;
+  });
+  if (wt > 0) {
+    const gx = cx + Math.max(-maxDrift, Math.min(maxDrift, (wx / wt - cx) * 0.35));
+    const gy = cy + Math.max(-maxDrift, Math.min(maxDrift, (wy / wt - cy) * 0.35));
+    selfX = lerp(selfX, gx, 0.0025);
+    selfY = lerp(selfY, gy, 0.0025);
+  }
+}
+
 function lerp(a, b, t) { return a + (b - a) * t; }
 
 // --- hover / click ---
-let mouseX = -999, mouseY = -999;
 let hoveredNode = null;
 
 canvas.addEventListener('mousemove', e => {
-  mouseX = e.clientX; mouseY = e.clientY;
-  const hit = findNearestNode(mouseX, mouseY, 40);
+  const hit = findNearestNode(e.clientX, e.clientY, 44);
   if (hit !== hoveredNode) {
     hoveredNode = hit;
     canvas.style.cursor = hit ? 'pointer' : 'default';
@@ -535,7 +573,7 @@ canvas.addEventListener('mousemove', e => {
 });
 
 canvas.addEventListener('click', e => {
-  const hit = findNearestNode(e.clientX, e.clientY, 40);
+  const hit = findNearestNode(e.clientX, e.clientY, 44);
   if (hit) showPanel(hit);
 });
 
@@ -543,7 +581,7 @@ function findNearestNode(mx, my, maxDist) {
   let best = null, bestD = maxDist;
   Object.values(nodes).forEach(n => {
     if (n.b < 0.1) return;
-    const d = Math.hypot(n.x - mx, n.y - my);
+    const d = Math.hypot(n.rx - mx, n.ry - my); // use rendered pos
     if (d < bestD) { bestD = d; best = n; }
   });
   return best;
@@ -555,7 +593,6 @@ function showPanel(node) {
   const q = encodeURIComponent(node.label);
   document.getElementById('panel-search').href = `https://www.google.com/search?q=${q}`;
   document.getElementById('panel').classList.add('visible');
-  // hide hint once panel is used
   document.getElementById('hint').classList.add('hidden');
 }
 
@@ -573,6 +610,7 @@ function animate() {
   ctx.fillRect(0, 0, W, H);
 
   drawRings();
+  drawBirths();
 
   Object.values(nodes).forEach(n => {
     if (n.tx !== undefined) { n.x = lerp(n.x, n.tx, 0.035); n.y = lerp(n.y, n.ty, 0.035); }
@@ -587,55 +625,82 @@ function animate() {
 function drawNode(n) {
   const b = n.b;
   if (b < 0.02) return;
+
+  // organic positional drift — amplitude scales with brightness (near = alive, beyond = still)
+  const driftScale = b * 1.6;
+  const dx = n.driftAmp * driftScale * Math.sin(clock * n.driftFreq + n.driftPhase);
+  const dy = n.driftAmp * driftScale * Math.cos(clock * n.driftFreq * 0.71 + n.driftPhase + 1.1);
+  n.rx = n.x + dx; // store rendered pos for hit testing
+  n.ry = n.y + dy;
+
   const [r, g, bl] = KIND_COLOR[n.kind] || [140, 140, 190];
   const isHovered  = hoveredNode === n;
-  const pulse  = 1 + (isHovered ? 0.3 : 0.12) * Math.sin(clock * 1.4 + labelAngle(n.label));
+  const pulse  = 1 + (isHovered ? 0.3 : 0.10) * Math.sin(clock * 1.4 + labelAngle(n.label));
   const radius = (2 + b * 5) * pulse * (isHovered ? 1.4 : 1);
 
   if (b > 0.2 || isHovered) {
     const glowR = isHovered ? radius * 10 : radius * 7;
-    const gr = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, glowR);
+    const gr = ctx.createRadialGradient(n.rx, n.ry, 0, n.rx, n.ry, glowR);
     gr.addColorStop(0, `rgba(${r},${g},${bl},${isHovered ? 0.4 : b * 0.25})`);
     gr.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = gr;
     ctx.beginPath();
-    ctx.arc(n.x, n.y, glowR, 0, Math.PI * 2);
+    ctx.arc(n.rx, n.ry, glowR, 0, Math.PI * 2);
     ctx.fill();
   }
 
   ctx.fillStyle = `rgba(${r},${g},${bl},${Math.min(1, (isHovered ? 1 : b) * 1.2)})`;
   ctx.beginPath();
-  ctx.arc(n.x, n.y, radius, 0, Math.PI * 2);
+  ctx.arc(n.rx, n.ry, radius, 0, Math.PI * 2);
   ctx.fill();
 
   if (b > 0.12 || isHovered) {
     const alpha = isHovered ? 1 : b * 0.75;
     ctx.fillStyle = `rgba(${r},${g},${bl},${alpha})`;
     ctx.font = `${Math.round(isHovered ? 11 : 9 + b * 3)}px "SF Mono",monospace`;
-    ctx.fillText(n.label, n.x + radius + 5, n.y + 4);
+    ctx.fillText(n.label, n.rx + radius + 5, n.ry + 4);
+  }
+}
+
+// birth ripple — expanding ring when entity enters the field
+function drawBirths() {
+  for (let i = births.length - 1; i >= 0; i--) {
+    const b = births[i];
+    b.t += 0.016;
+    const p = b.t / 2.2;
+    if (p > 1) { births.splice(i, 1); continue; }
+    const eased = 1 - (1 - p) * (1 - p); // ease-out
+    const radius = eased * 90;
+    const alpha  = (1 - p) * 0.55;
+    ctx.strokeStyle = `rgba(${b.r},${b.g},${b.b},${alpha})`;
+    ctx.lineWidth = 1.2;
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, radius, 0, Math.PI * 2);
+    ctx.stroke();
   }
 }
 
 function drawSelf() {
   const pulse = 1 + 0.18 * Math.sin(clock * 2.2);
   const s = 9 * pulse;
-  const gr = ctx.createRadialGradient(cx, cy, 0, cx, cy, 28 * pulse);
+  const gr = ctx.createRadialGradient(selfX, selfY, 0, selfX, selfY, 28 * pulse);
   gr.addColorStop(0,   'rgba(212,175,55,0.7)');
   gr.addColorStop(0.3, 'rgba(212,175,55,0.12)');
   gr.addColorStop(1,   'rgba(0,0,0,0)');
   ctx.fillStyle = gr;
   ctx.beginPath();
-  ctx.arc(cx, cy, 28 * pulse, 0, Math.PI * 2);
+  ctx.arc(selfX, selfY, 28 * pulse, 0, Math.PI * 2);
   ctx.fill();
   ctx.strokeStyle = `rgba(212,175,55,${0.5 + 0.3 * Math.sin(clock * 2.2)})`;
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(cx - s, cy); ctx.lineTo(cx + s, cy);
-  ctx.moveTo(cx, cy - s); ctx.lineTo(cx, cy + s);
+  ctx.moveTo(selfX - s, selfY); ctx.lineTo(selfX + s, selfY);
+  ctx.moveTo(selfX, selfY - s); ctx.lineTo(selfX, selfY + s);
   ctx.stroke();
   ctx.fillStyle = 'rgba(212,175,55,1)';
   ctx.beginPath();
-  ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
+  ctx.arc(selfX, selfY, 2.5, 0, Math.PI * 2);
   ctx.fill();
 }
 
@@ -670,7 +735,7 @@ function updateWanderers(users) {
     const node = nodes[u.position];
     if (!node) return;
     const [ox, oy] = idOffset(u.id);
-    const tx = node.x + ox, ty = node.y + oy;
+    const tx = (node.rx || node.x) + ox, ty = (node.ry || node.y) + oy;
     if (!wanderers[u.id]) wanderers[u.id] = { x: tx, y: ty, phase: Math.random() * Math.PI * 2 };
     wanderers[u.id].tx = tx;
     wanderers[u.id].ty = ty;
@@ -740,6 +805,7 @@ async function fetchField() {
     const enc = encodeURIComponent(interest || 'curiosity exploration wandering');
     const f   = await fetch('/field?interest=' + enc).then(r => r.json());
     updateNodes(f, allEntities);
+    updateSelfGravity(f);
     document.getElementById('position').textContent       = f.position || '—';
     document.getElementById('presence-count').textContent = f.presence || 0;
     document.getElementById('conn').textContent           = 'live';
