@@ -283,198 +283,265 @@ async fn landing() -> Html<&'static str> {
     Html(LANDING_HTML)
 }
 
-static LANDING_HTML: &str = r#"<!DOCTYPE html>
+static LANDING_HTML: &str = r##"<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Golden Protocol — space.gold3112.online</title>
+<title>Golden Protocol</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
-  background: #0d0d18;
-  color: #c8c8e0;
+  background: #07070f;
   font-family: 'SF Mono','Fira Code','Menlo',monospace;
-  font-size: 13px;
-  min-height: 100vh;
+  font-size: 12px;
+  height: 100vh;
+  overflow: hidden;
+}
+canvas {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+}
+#ui {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 40px 20px;
+  justify-content: space-between;
+  padding: 28px 32px;
 }
-#container { width: 100%; max-width: 560px; }
-#header { margin-bottom: 48px; }
-#tagline {
-  font-size: 10px;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: #555570;
-  margin-bottom: 16px;
+#top { display: flex; justify-content: space-between; align-items: flex-start; }
+#tagline { font-size: 9px; letter-spacing: 0.22em; text-transform: uppercase; color: #2a2a44; margin-bottom: 10px; }
+#position { font-size: 20px; color: #d4af37; letter-spacing: 0.04em; min-height: 28px; }
+#meta-line { font-size: 10px; color: #303050; margin-top: 6px; }
+#meta-line span { color: #484868; }
+#presence-block { text-align: right; }
+#presence-count { font-size: 28px; color: #50508a; letter-spacing: -0.02em; }
+#presence-label { font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; color: #252540; margin-top: 4px; }
+#bottom { display: flex; justify-content: space-between; align-items: flex-end; }
+#drift { font-size: 11px; color: #906028; min-height: 18px; letter-spacing: 0.05em; }
+#footer-right { text-align: right; }
+#conn { font-size: 9px; letter-spacing: 0.15em; color: #202038; margin-bottom: 6px; }
+#footer-link { pointer-events: auto; }
+#footer-link a {
+  font-size: 10px; color: #303055;
+  text-decoration: none; border-bottom: 1px solid #252542;
+  letter-spacing: 0.08em;
 }
-h1 {
-  font-size: 22px;
-  font-weight: normal;
-  color: #e8e8ff;
-  line-height: 1.5;
-  margin-bottom: 14px;
-}
-#sub { color: #8080a8; line-height: 1.8; }
-#field { margin-bottom: 48px; }
-.label {
-  font-size: 9px;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: #484868;
-  margin-bottom: 10px;
-}
-#position-line {
-  display: flex;
-  align-items: baseline;
-  gap: 16px;
-  margin-bottom: 28px;
-}
-#position { font-size: 16px; color: #9090d8; }
-#meta     { font-size: 10px; color: #484860; }
-.entity-list { list-style: none; margin-bottom: 20px; }
-.near-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 0;
-  border-bottom: 1px solid #181828;
-}
-.near-dot {
-  width: 5px; height: 5px;
-  border-radius: 50%;
-  background: #6868c0;
-  flex-shrink: 0;
-}
-.near-label { color: #c0c0e8; flex: 1; }
-.near-bar {
-  width: 80px; height: 2px;
-  background: #1e1e32;
-  border-radius: 1px;
-  position: relative;
-}
-.near-bar-fill {
-  position: absolute;
-  left: 0; top: 0; bottom: 0;
-  background: #5858b8;
-  border-radius: 1px;
-  transition: width 1.5s ease;
-}
-.horizon-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 5px 0;
-  color: #505068;
-}
-.horizon-dot {
-  width: 3px; height: 3px;
-  border-radius: 50%;
-  background: #303048;
-  flex-shrink: 0;
-}
-#drift-line { margin-top: 16px; color: #a06030; font-size: 11px; min-height: 18px; }
-#status-line {
-  font-size: 10px;
-  color: #383850;
-  margin-top: 24px;
-  display: flex;
-  gap: 20px;
-}
-#install { border-top: 1px solid #181828; padding-top: 32px; }
-#install p { color: #606080; line-height: 1.8; margin-bottom: 20px; }
-.cta {
-  display: inline-block;
-  padding: 8px 20px;
-  border: 1px solid #383868;
-  color: #7878b8;
-  text-decoration: none;
-  font-size: 11px;
-  letter-spacing: 0.1em;
-  font-family: inherit;
-  transition: all 0.2s;
-}
-.cta:hover { border-color: #6060b0; color: #a0a0d8; background: #111122; }
+#footer-link a:hover { color: #7070b0; border-color: #5050a0; }
 </style>
 </head>
 <body>
-<div id="container">
-  <div id="header">
-    <div id="tagline">Golden Protocol · space.gold3112.online</div>
-    <h1>The browser was a window.<br>This is a box.</h1>
-    <p id="sub">A shared space you inhabit rather than visit.<br>
-    Your curiosity becomes your position. Others are here — you can feel them.</p>
-  </div>
-
-  <div id="field">
-    <div class="label">field state · live</div>
-    <div id="position-line">
-      <span id="position">—</span>
-      <span id="meta"></span>
+<canvas id="c"></canvas>
+<div id="ui">
+  <div id="top">
+    <div>
+      <div id="tagline">Golden Protocol · space.gold3112.online</div>
+      <div id="position">—</div>
+      <div id="meta-line">density <span id="density">—</span> &nbsp;·&nbsp; <span id="conn">connecting</span></div>
     </div>
-    <div class="label">near</div>
-    <ul id="near-list" class="entity-list"></ul>
-    <div class="label">horizon</div>
-    <ul id="horizon-list" class="entity-list"></ul>
-    <div id="drift-line"></div>
-    <div id="status-line">
-      <span id="presence-txt"></span>
-      <span id="conn-status">connecting…</span>
+    <div id="presence-block">
+      <div id="presence-count">—</div>
+      <div id="presence-label">present</div>
     </div>
   </div>
-
-  <div id="install">
-    <p>Install the browser extension to let your browsing become wandering.<br>
-    Your reading shapes your position. The space responds.</p>
-    <a class="cta" href="https://github.com/gold3112/golden-protocol" target="_blank">view source / install →</a>
+  <div id="bottom">
+    <div id="drift"></div>
+    <div id="footer-right">
+      <div id="footer-link"><a href="https://github.com/gold3112/golden-protocol" target="_blank">source / extension →</a></div>
+    </div>
   </div>
 </div>
 
 <script>
-async function loop() {
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+let W, H, cx, cy;
+
+function resize() {
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  cx = W / 2; cy = H / 2;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// stable angle from label string
+function labelAngle(label) {
+  let h = 5381;
+  for (let i = 0; i < label.length; i++) h = (((h << 5) + h) + label.charCodeAt(i)) >>> 0;
+  return (h % 10000) / 10000 * Math.PI * 2;
+}
+
+function distToRadius(dist) {
+  const near    = Math.min(W, H) * 0.18;
+  const horizon = Math.min(W, H) * 0.36;
+  const beyond  = Math.min(W, H) * 0.46;
+  if (dist < 0.35) return near    + (dist / 0.35) * (horizon - near);
+  if (dist < 0.70) return horizon + ((dist - 0.35) / 0.35) * (beyond - horizon);
+  return beyond + ((dist - 0.70) / 0.30) * (Math.min(W, H) * 0.06);
+}
+
+// entity state: label -> {x, y, tx, ty, b, tb, kind}
+const nodes = {};
+
+const KIND_COLOR = {
+  AI:      [170, 130, 255],
+  Stream:  [70,  170, 255],
+  Event:   [255, 150, 70 ],
+  Data:    [80,  200, 130],
+  Human:   [255, 210, 90 ],
+  Service: [160, 160, 200],
+};
+
+function updateNodes(field, allEntities) {
+  const distMap = {};
+  (field.near    || []).forEach(e => distMap[e.label] = { d: e.distance, zone: 'near' });
+  (field.horizon || []).forEach(e => distMap[e.label] = { d: e.distance, zone: 'horizon' });
+
+  allEntities.forEach(e => {
+    const angle = labelAngle(e.label);
+    const info  = distMap[e.label];
+    const dist  = info ? info.d : 0.88;
+    const zone  = info ? info.zone : 'beyond';
+    const r     = distToRadius(dist);
+    const tx    = cx + Math.cos(angle) * r;
+    const ty    = cy + Math.sin(angle) * r;
+    const tb    = zone === 'near' ? 1.0 : zone === 'horizon' ? 0.35 : 0.08;
+
+    if (!nodes[e.label]) {
+      nodes[e.label] = { x: tx, y: ty, b: 0, kind: e.kind, label: e.label };
+    }
+    const n = nodes[e.label];
+    n.tx = tx; n.ty = ty; n.tb = tb; n.kind = e.kind;
+  });
+}
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+let clock = 0;
+function animate() {
+  requestAnimationFrame(animate);
+  clock += 0.016;
+
+  // soft trail
+  ctx.fillStyle = 'rgba(7,7,15,0.18)';
+  ctx.fillRect(0, 0, W, H);
+
+  drawRings();
+
+  Object.values(nodes).forEach(n => {
+    if (n.tx !== undefined) { n.x = lerp(n.x, n.tx, 0.035); n.y = lerp(n.y, n.ty, 0.035); }
+    n.b = lerp(n.b, n.tb || 0, 0.04);
+    drawNode(n);
+  });
+
+  drawSelf();
+}
+
+function drawNode(n) {
+  const b = n.b;
+  if (b < 0.02) return;
+  const [r, g, bl] = KIND_COLOR[n.kind] || [140, 140, 190];
+  const pulse  = 1 + 0.12 * Math.sin(clock * 1.4 + labelAngle(n.label));
+  const radius = (2 + b * 5) * pulse;
+
+  if (b > 0.25) {
+    const gr = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, radius * 7);
+    gr.addColorStop(0, `rgba(${r},${g},${bl},${b * 0.25})`);
+    gr.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = gr;
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, radius * 7, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.fillStyle = `rgba(${r},${g},${bl},${Math.min(1, b * 1.2)})`;
+  ctx.beginPath();
+  ctx.arc(n.x, n.y, radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  if (b > 0.15) {
+    ctx.fillStyle = `rgba(${r},${g},${bl},${b * 0.75})`;
+    ctx.font = `${Math.round(9 + b * 3)}px "SF Mono",monospace`;
+    ctx.fillText(n.label, n.x + radius + 5, n.y + 4);
+  }
+}
+
+function drawSelf() {
+  const pulse = 1 + 0.18 * Math.sin(clock * 2.2);
+  const s = 9 * pulse;
+
+  const gr = ctx.createRadialGradient(cx, cy, 0, cx, cy, 28 * pulse);
+  gr.addColorStop(0,   'rgba(212,175,55,0.7)');
+  gr.addColorStop(0.3, 'rgba(212,175,55,0.12)');
+  gr.addColorStop(1,   'rgba(0,0,0,0)');
+  ctx.fillStyle = gr;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 28 * pulse, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = `rgba(212,175,55,${0.5 + 0.3 * Math.sin(clock * 2.2)})`;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(cx - s, cy); ctx.lineTo(cx + s, cy);
+  ctx.moveTo(cx, cy - s); ctx.lineTo(cx, cy + s);
+  ctx.stroke();
+
+  ctx.fillStyle = 'rgba(212,175,55,1)';
+  ctx.beginPath();
+  ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawRings() {
+  [[0.18, 0.05], [0.42, 0.03]].forEach(([frac, alpha]) => {
+    const r = Math.min(W, H) * frac;
+    ctx.strokeStyle = `rgba(80,80,140,${alpha})`;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2, 10]);
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  });
+}
+
+// --- data ---
+let allEntities = [];
+
+async function fetchEntities() {
+  try { allEntities = await fetch('/entities').then(r => r.json()); } catch {}
+}
+
+async function fetchField() {
   try {
     const f = await fetch('/field?interest=curiosity+exploration+encounter').then(r => r.json());
+    updateNodes(f, allEntities);
 
-    document.getElementById('position').textContent = f.position || '—';
-    document.getElementById('meta').textContent = `density ${((f.density||0)*100).toFixed(0)}%`;
-
-    const nl = document.getElementById('near-list');
-    nl.innerHTML = '';
-    (f.near||[]).forEach(e => {
-      const li = document.createElement('li');
-      li.className = 'near-item';
-      li.innerHTML = `<span class="near-dot"></span><span class="near-label">${e.label}</span>
-        <span class="near-bar"><span class="near-bar-fill" style="width:${((1-e.distance)*100).toFixed(0)}%"></span></span>`;
-      nl.appendChild(li);
-    });
-
-    const hl = document.getElementById('horizon-list');
-    hl.innerHTML = '';
-    (f.horizon||[]).slice(0,4).forEach(e => {
-      const li = document.createElement('li');
-      li.className = 'horizon-item';
-      li.innerHTML = `<span class="horizon-dot"></span><span>${e.label}</span>`;
-      hl.appendChild(li);
-    });
-
-    const d = document.getElementById('drift-line');
-    d.textContent = f.drift&&f.drift.length ? `› drifting toward ${f.drift[0].toward}` : '';
-
-    document.getElementById('presence-txt').textContent = `${f.presence||0} present`;
-    document.getElementById('conn-status').textContent = 'live';
+    document.getElementById('position').textContent      = f.position || '—';
+    document.getElementById('density').textContent       = ((f.density||0)*100).toFixed(0) + '%';
+    document.getElementById('presence-count').textContent = f.presence || 0;
+    document.getElementById('conn').textContent          = 'live';
+    const drift = f.drift && f.drift.length ? '› drifting toward ' + f.drift[0].toward : '';
+    document.getElementById('drift').textContent = drift;
   } catch {
-    document.getElementById('conn-status').textContent = 'no signal';
+    document.getElementById('conn').textContent = 'no signal';
   }
-  setTimeout(loop, 4000);
 }
-loop();
+
+fetchEntities().then(() => {
+  fetchField();
+  setInterval(fetchField,    4000);
+  setInterval(fetchEntities, 30000);
+});
+animate();
 </script>
 </body>
-</html>"#;
+</html>"##;
 
 /// GET /field
 async fn get_field(
