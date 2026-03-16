@@ -6,7 +6,7 @@ mod identity;
 
 use axum::{
     extract::{Path, Query, State},
-    response::sse::{Event, KeepAlive, Sse},
+    response::{Html, sse::{Event, KeepAlive, Sse}},
     routing::{get, post},
     Json, Router,
 };
@@ -277,6 +277,204 @@ fn compute_field_state(state: &AppState, q: &FieldQuery) -> FieldState {
 }
 
 // --- ハンドラ ---
+
+/// GET / — ランディングページ
+async fn landing() -> Html<&'static str> {
+    Html(LANDING_HTML)
+}
+
+static LANDING_HTML: &str = r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Golden Protocol — space.gold3112.online</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #07070d;
+  color: #b0b0c8;
+  font-family: 'SF Mono','Fira Code','Menlo',monospace;
+  font-size: 13px;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+}
+#container { width: 100%; max-width: 560px; }
+#header { margin-bottom: 48px; }
+#tagline {
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #2a2a40;
+  margin-bottom: 16px;
+}
+h1 {
+  font-size: 22px;
+  font-weight: normal;
+  color: #d8d8f0;
+  line-height: 1.5;
+  margin-bottom: 12px;
+}
+#sub { color: #404058; line-height: 1.8; }
+#field { margin-bottom: 48px; }
+.label {
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #1e1e30;
+  margin-bottom: 10px;
+}
+#position-line {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+#position { font-size: 16px; color: #7070c0; }
+#meta     { font-size: 10px; color: #252535; }
+.entity-list { list-style: none; margin-bottom: 20px; }
+.near-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 0;
+  border-bottom: 1px solid #0c0c18;
+}
+.near-dot {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: #4444a0;
+  flex-shrink: 0;
+}
+.near-label { color: #b0b0e0; flex: 1; }
+.near-bar {
+  width: 80px; height: 2px;
+  background: #111120;
+  border-radius: 1px;
+  position: relative;
+}
+.near-bar-fill {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  background: #3a3a90;
+  border-radius: 1px;
+  transition: width 1.5s ease;
+}
+.horizon-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+  color: #2a2a3a;
+}
+.horizon-dot {
+  width: 3px; height: 3px;
+  border-radius: 50%;
+  background: #1a1a28;
+  flex-shrink: 0;
+}
+#drift-line { margin-top: 16px; color: #553311; font-size: 11px; min-height: 18px; }
+#status-line {
+  font-size: 10px;
+  color: #1a1a28;
+  margin-top: 24px;
+  display: flex;
+  gap: 20px;
+}
+#install { border-top: 1px solid #0e0e1c; padding-top: 32px; }
+#install p { color: #2a2a3a; line-height: 1.8; margin-bottom: 20px; }
+.cta {
+  display: inline-block;
+  padding: 8px 20px;
+  border: 1px solid #222238;
+  color: #555580;
+  text-decoration: none;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  font-family: inherit;
+  transition: all 0.2s;
+}
+.cta:hover { border-color: #4444a0; color: #9090c0; background: #0c0c1a; }
+</style>
+</head>
+<body>
+<div id="container">
+  <div id="header">
+    <div id="tagline">Golden Protocol · space.gold3112.online</div>
+    <h1>The browser was a window.<br>This is a box.</h1>
+    <p id="sub">A shared space you inhabit rather than visit.<br>
+    Your curiosity becomes your position. Others are here — you can feel them.</p>
+  </div>
+
+  <div id="field">
+    <div class="label">field state · live</div>
+    <div id="position-line">
+      <span id="position">—</span>
+      <span id="meta"></span>
+    </div>
+    <div class="label">near</div>
+    <ul id="near-list" class="entity-list"></ul>
+    <div class="label">horizon</div>
+    <ul id="horizon-list" class="entity-list"></ul>
+    <div id="drift-line"></div>
+    <div id="status-line">
+      <span id="presence-txt"></span>
+      <span id="conn-status">connecting…</span>
+    </div>
+  </div>
+
+  <div id="install">
+    <p>Install the browser extension to let your browsing become wandering.<br>
+    Your reading shapes your position. The space responds.</p>
+    <a class="cta" href="https://github.com/gold3112/golden-protocol" target="_blank">view source / install →</a>
+  </div>
+</div>
+
+<script>
+async function loop() {
+  try {
+    const f = await fetch('/field?interest=curiosity+exploration+encounter').then(r => r.json());
+
+    document.getElementById('position').textContent = f.position || '—';
+    document.getElementById('meta').textContent = `density ${((f.density||0)*100).toFixed(0)}%`;
+
+    const nl = document.getElementById('near-list');
+    nl.innerHTML = '';
+    (f.near||[]).forEach(e => {
+      const li = document.createElement('li');
+      li.className = 'near-item';
+      li.innerHTML = `<span class="near-dot"></span><span class="near-label">${e.label}</span>
+        <span class="near-bar"><span class="near-bar-fill" style="width:${((1-e.distance)*100).toFixed(0)}%"></span></span>`;
+      nl.appendChild(li);
+    });
+
+    const hl = document.getElementById('horizon-list');
+    hl.innerHTML = '';
+    (f.horizon||[]).slice(0,4).forEach(e => {
+      const li = document.createElement('li');
+      li.className = 'horizon-item';
+      li.innerHTML = `<span class="horizon-dot"></span><span>${e.label}</span>`;
+      hl.appendChild(li);
+    });
+
+    const d = document.getElementById('drift-line');
+    d.textContent = f.drift&&f.drift.length ? `› drifting toward ${f.drift[0].toward}` : '';
+
+    document.getElementById('presence-txt').textContent = `${f.presence||0} present`;
+    document.getElementById('conn-status').textContent = 'live';
+  } catch {
+    document.getElementById('conn-status').textContent = 'no signal';
+  }
+  setTimeout(loop, 4000);
+}
+loop();
+</script>
+</body>
+</html>"#;
 
 /// GET /field
 async fn get_field(
@@ -697,6 +895,7 @@ async fn main() {
         .allow_headers(Any);
 
     let app = Router::new()
+        .route("/",              get(landing))
         .route("/field",         get(get_field))
         .route("/field/stream",  get(stream_field))
         .route("/presence",      get(get_presence))
