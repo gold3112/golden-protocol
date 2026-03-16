@@ -846,50 +846,11 @@ async fn connect_rss(
     State(state): State<Arc<AppState>>,
     Json(req): Json<RssConnectRequest>,
 ) -> Result<Json<ConnectResult>, String> {
-    let max = req.max_items.unwrap_or(20);
-
-    let bytes = reqwest::get(&req.url).await
-        .map_err(|e| e.to_string())?
-        .bytes().await
-        .map_err(|e| e.to_string())?;
-
-    let channel = rss::Channel::read_from(&bytes[..])
-        .map_err(|e| e.to_string())?;
-
-    let mut labels = Vec::new();
-    let mut graph  = state.graph.lock().unwrap();
-
-    for item in channel.items().iter().take(max) {
-        let title = item.title().unwrap_or("untitled").to_string();
-        let desc  = item.description().unwrap_or("").to_string();
-        let text  = format!("{} {}", title, desc);
-
-        // HTML タグを除去
-        let text = scraper::Html::parse_fragment(&text)
-            .root_element()
-            .text()
-            .collect::<String>();
-        let text = text.trim().chars().take(500).collect::<String>();
-
-        let label = title.chars().take(60).collect::<String>();
-        // 重複チェック
-        if graph.graph.node_indices().any(|i| graph.graph[i].label == label) {
-            continue;
-        }
-        if let Ok(emb) = embedding::embed(&text) {
-            let mut entity      = Entity::new(EntityKind::Stream, &label);
-            entity.activity_vec = Some(emb.clone());
-            entity.embedding    = Some(emb);
-            let _ = identity::save_entity(&entity);
-            graph.add_entity(entity);
-            labels.push(label);
-        }
-    }
-    drop(graph);
+    let max   = req.max_items.unwrap_or(20);
+    let added = ingest_rss_feed(&req.url, max, &state).await;
     let _ = identity::save_feed(&req.url, max);
-
-    tracing::info!("rss connect: added {} entities from {}", labels.len(), req.url);
-    Ok(Json(ConnectResult { added: labels.len(), labels }))
+    tracing::info!("rss connect: added {} entities from {}", added, req.url);
+    Ok(Json(ConnectResult { added, labels: vec![] }))
 }
 
 /// POST /connect/url — URL のテキストを抽出して Data エンティティとして追加
@@ -948,6 +909,43 @@ async fn connect_url(
 
     tracing::info!("url connect: added '{}' from {}", label, req.url);
     Ok(Json(ConnectResult { added: 1, labels: vec![label] }))
+}
+
+/// RSS フィードを取り込む共通ロジック (handler + 自動取り込みタスクで共用)
+async fn ingest_rss_feed(url: &str, max: usize, state: &Arc<AppState>) -> usize {
+    let bytes = match async {
+        let r = reqwest::get(url).await?;
+        r.bytes().await
+    }.await {
+        Ok(b) => b,
+        Err(e) => { tracing::warn!("rss fetch failed {}: {}", url, e); return 0; }
+    };
+    let channel = match rss::Channel::read_from(&bytes[..]) {
+        Ok(c) => c,
+        Err(e) => { tracing::warn!("rss parse failed {}: {}", url, e); return 0; }
+    };
+    let mut added = 0;
+    for item in channel.items().iter().take(max) {
+        let title = item.title().unwrap_or("untitled").to_string();
+        let desc  = item.description().unwrap_or("").to_string();
+        let text  = scraper::Html::parse_fragment(&format!("{} {}", title, desc))
+            .root_element().text().collect::<String>();
+        let text  = text.trim().chars().take(500).collect::<String>();
+        let label = title.chars().take(60).collect::<String>();
+        {
+            let graph = state.graph.lock().unwrap();
+            if graph.graph.node_indices().any(|i| graph.graph[i].label == label) { continue; }
+        }
+        if let Ok(emb) = embedding::embed(&text) {
+            let mut entity      = Entity::new(EntityKind::Stream, &label);
+            entity.activity_vec = Some(emb.clone());
+            entity.embedding    = Some(emb);
+            let _ = identity::save_entity(&entity);
+            state.graph.lock().unwrap().add_entity(entity);
+            added += 1;
+        }
+    }
+    added
 }
 
 /// GET /feeds — 登録済み RSS フィード一覧
@@ -1089,51 +1087,33 @@ async fn main() {
         });
     }
 
-    // RSS 自動取り込みタスク (1時間ごと)
+    // RSS 自動取り込みタスク
+    // 起動直後: デフォルトフィード登録 + 即時取り込み
+    // 以降:     1時間ごとに全登録フィードを再取り込み
     {
         let state_c = Arc::clone(&state);
         tokio::spawn(async move {
+            // デフォルトフィード (初回のみ登録)
+            let default_feeds: &[(&str, usize)] = &[
+                ("https://hnrss.org/frontpage",              10), // Hacker News
+                ("https://feeds.bbci.co.uk/news/rss.xml",    8),  // BBC World
+                ("https://rss.arxiv.org/rss/cs.AI",          8),  // arxiv AI
+            ];
+            for (url, max) in default_feeds {
+                if identity::load_feeds().iter().any(|(u, _)| u == *url) { continue; }
+                let _ = identity::save_feed(url, *max);
+                let added = ingest_rss_feed(url, *max, &state_c).await;
+                tracing::info!("default feed seeded: +{} from {}", added, url);
+            }
+
+            // 1時間ごとに再取り込み
             let mut interval = tokio::time::interval(Duration::from_secs(3600));
             loop {
                 interval.tick().await;
                 let feeds = identity::load_feeds();
-                if feeds.is_empty() { continue; }
                 tracing::info!("rss auto-ingest: processing {} feeds", feeds.len());
                 for (url, max) in feeds {
-                    let bytes = match async {
-                        let r = reqwest::get(&url).await?;
-                        r.bytes().await
-                    }.await {
-                        Ok(b) => b,
-                        Err(e) => { tracing::warn!("rss fetch failed {}: {}", url, e); continue; }
-                    };
-                    let channel = match rss::Channel::read_from(&bytes[..]) {
-                        Ok(c) => c,
-                        Err(e) => { tracing::warn!("rss parse failed {}: {}", url, e); continue; }
-                    };
-                    let mut added = 0;
-                    for item in channel.items().iter().take(max) {
-                        let title = item.title().unwrap_or("untitled").to_string();
-                        let desc  = item.description().unwrap_or("").to_string();
-                        let text  = scraper::Html::parse_fragment(&format!("{} {}", title, desc))
-                            .root_element().text().collect::<String>();
-                        let text  = text.trim().chars().take(500).collect::<String>();
-                        let label = title.chars().take(60).collect::<String>();
-                        {
-                            let graph = state_c.graph.lock().unwrap();
-                            if graph.graph.node_indices().any(|i| graph.graph[i].label == label) {
-                                continue;
-                            }
-                        }
-                        if let Ok(emb) = embedding::embed(&text) {
-                            let mut entity      = Entity::new(EntityKind::Stream, &label);
-                            entity.activity_vec = Some(emb.clone());
-                            entity.embedding    = Some(emb);
-                            let _ = identity::save_entity(&entity);
-                            state_c.graph.lock().unwrap().add_entity(entity);
-                            added += 1;
-                        }
-                    }
+                    let added = ingest_rss_feed(&url, max, &state_c).await;
                     if added > 0 {
                         tracing::info!("rss auto-ingest: +{} from {}", added, url);
                     }
