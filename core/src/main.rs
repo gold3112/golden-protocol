@@ -1404,6 +1404,12 @@ async fn post_entity(
     State(state): State<Arc<AppState>>,
     Json(req): Json<EntityRequest>,
 ) -> Result<Json<EntitySummary>, String> {
+    if req.label.chars().count() > 120 {
+        return Err("label too long (max 120 chars)".to_string());
+    }
+    if req.text.as_deref().unwrap_or("").len() > 4000 {
+        return Err("text too long (max 4000 bytes)".to_string());
+    }
     let text = req.text.as_deref().unwrap_or(&req.label);
     let emb  = embedding::embed(text).map_err(|e| e.to_string())?;
     let kind = req.kind.unwrap_or(EntityKind::Data);
@@ -1464,6 +1470,12 @@ async fn post_encounter(
     State(state): State<Arc<AppState>>,
     Json(req): Json<EncounterRequest>,
 ) -> Result<Json<IdentitySummary>, String> {
+    if req.near_labels.len() > 50 {
+        return Err("too many near_labels (max 50)".to_string());
+    }
+    if req.interest_text.len() > 1000 {
+        return Err("interest_text too long (max 1000 bytes)".to_string());
+    }
     let mut identity = Identity::load(&req.user_id)
         .map_err(|_| format!("identity {} not found", req.user_id))?;
 
@@ -1561,11 +1573,60 @@ struct ConnectResult {
     labels: Vec<String>,
 }
 
+/// タイムアウト付き HTTP クライアント (外部フェッチ共通)
+fn http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .unwrap_or_default()
+}
+
+/// URL が外部公開サービスを指しているか検証する (SSRF 対策)
+fn validate_external_url(url: &str) -> Result<(), String> {
+    let parsed = url.parse::<reqwest::Url>()
+        .map_err(|_| "invalid URL".to_string())?;
+
+    // スキームは http / https のみ許可
+    match parsed.scheme() {
+        "http" | "https" => {}
+        s => return Err(format!("scheme '{}' not allowed", s)),
+    }
+
+    let host = parsed.host_str().unwrap_or("").to_lowercase();
+
+    // localhost 系
+    if host == "localhost" || host == "ip6-localhost" {
+        return Err("internal host not allowed".to_string());
+    }
+
+    // IP アドレスの場合はプライベート範囲をチェック
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        let blocked = match ip {
+            IpAddr::V4(v4) => {
+                v4.is_loopback()        // 127.0.0.0/8
+                || v4.is_private()      // 10/8, 172.16/12, 192.168/16
+                || v4.is_link_local()   // 169.254/16 (AWSメタデータ等)
+                || v4.is_broadcast()
+                || v4.is_unspecified()
+            }
+            IpAddr::V6(v6) => {
+                v6.is_loopback() || v6.is_unspecified()
+            }
+        };
+        if blocked {
+            return Err("private/internal IP not allowed".to_string());
+        }
+    }
+
+    Ok(())
+}
+
 /// POST /connect/rss — RSS/Atom フィードを Stream エンティティとして取り込む
 async fn connect_rss(
     State(state): State<Arc<AppState>>,
     Json(req): Json<RssConnectRequest>,
 ) -> Result<Json<ConnectResult>, String> {
+    validate_external_url(&req.url)?;
     let max   = req.max_items.unwrap_or(20);
     let added = ingest_rss_feed(&req.url, max, &state).await;
     let _ = identity::save_feed(&req.url, max);
@@ -1578,7 +1639,8 @@ async fn connect_url(
     State(state): State<Arc<AppState>>,
     Json(req): Json<UrlConnectRequest>,
 ) -> Result<Json<ConnectResult>, String> {
-    let html = reqwest::get(&req.url).await
+    validate_external_url(&req.url)?;
+    let html = http_client().get(&req.url).send().await
         .map_err(|e| e.to_string())?
         .text().await
         .map_err(|e| e.to_string())?;
@@ -1634,7 +1696,7 @@ async fn connect_url(
 /// RSS フィードを取り込む共通ロジック (handler + 自動取り込みタスクで共用)
 async fn ingest_rss_feed(url: &str, max: usize, state: &Arc<AppState>) -> usize {
     let bytes = match async {
-        let r = reqwest::get(url).await?;
+        let r = http_client().get(url).send().await?;
         r.bytes().await
     }.await {
         Ok(b) => b,
@@ -1703,6 +1765,9 @@ async fn register_peer(
     Json(req): Json<PeerAnnounce>,
 ) -> Json<serde_json::Value> {
     let url = req.url.trim_end_matches('/').to_string();
+    if validate_external_url(&url).is_err() {
+        return Json(serde_json::json!({ "error": "invalid peer url" }));
+    }
     state.peers.lock().unwrap().insert(url.clone(), req.node_id);
     let _ = identity::save_peer(&url, req.node_id);
     tracing::info!("peer registered: {} ({})", url, req.node_id);
@@ -1983,7 +2048,7 @@ async fn main() {
             // 自分がbootstrapでない場合、bootstrapに自己登録
             if !node_url.is_empty() && !node_url.contains("space.gold3112.online") {
                 let body = serde_json::json!({ "node_id": node_id_c, "url": node_url });
-                if let Ok(resp) = reqwest::Client::new()
+                if let Ok(resp) = http_client()
                     .post(format!("{}/peer/register", bootstrap))
                     .json(&body)
                     .send().await
@@ -2008,7 +2073,7 @@ async fn main() {
 
             // bootstrapをピアとして追加 (自分でない場合)
             if !bootstrap.contains(node_url.trim_end_matches('/')) {
-                if let Ok(resp) = reqwest::get(format!("{}/peers", bootstrap)).await {
+                if let Ok(resp) = http_client().get(format!("{}/peers", bootstrap)).send().await {
                     if let Ok(data) = resp.json::<serde_json::Value>().await {
                         if let Some(id) = data["node_id"].as_str().and_then(|s| s.parse::<Uuid>().ok()) {
                             state_c.peers.lock().unwrap().insert(bootstrap.clone(), id);
@@ -2025,9 +2090,10 @@ async fn main() {
                 let peers: Vec<String> = state_c.peers.lock().unwrap().keys().cloned().collect();
                 for peer_url in peers {
                     // ピアのエンティティをfetch
-                    let entities: Vec<Entity> = match reqwest::get(
-                        format!("{}/entities/export", peer_url)
-                    ).await {
+                    let entities: Vec<Entity> = match http_client()
+                        .get(format!("{}/entities/export", peer_url))
+                        .send().await
+                    {
                         Ok(r) => r.json().await.unwrap_or_default(),
                         Err(_) => continue,
                     };
@@ -2058,7 +2124,7 @@ async fn main() {
                     }
 
                     // ピアのピアリストも取り込む (ネットワーク拡大)
-                    if let Ok(resp) = reqwest::get(format!("{}/peers", peer_url)).await {
+                    if let Ok(resp) = http_client().get(format!("{}/peers", peer_url)).send().await {
                         if let Ok(data) = resp.json::<serde_json::Value>().await {
                             if let Some(list) = data["peers"].as_array() {
                                 for p in list {
