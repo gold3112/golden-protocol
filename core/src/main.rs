@@ -439,6 +439,7 @@ function animate() {
     drawNode(n);
   });
 
+  drawWanderers();
   drawSelf();
 }
 
@@ -510,6 +511,62 @@ function drawRings() {
   });
 }
 
+// --- wanderers (other users) ---
+// id -> {x, y, tx, ty, phase}
+const wanderers = {};
+
+// stable small offset from entity center, seeded by user id
+function idOffset(id) {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (((h << 5) + h) + id.charCodeAt(i)) >>> 0;
+  const angle = (h % 1000) / 1000 * Math.PI * 2;
+  const r = 18 + (h % 500) / 500 * 14;
+  return [Math.cos(angle) * r, Math.sin(angle) * r];
+}
+
+function updateWanderers(users) {
+  const seen = new Set();
+  users.forEach(u => {
+    seen.add(u.id);
+    const node = nodes[u.position];
+    if (!node) return;
+    const [ox, oy] = idOffset(u.id);
+    const tx = node.x + ox;
+    const ty = node.y + oy;
+    if (!wanderers[u.id]) {
+      wanderers[u.id] = { x: tx, y: ty, phase: Math.random() * Math.PI * 2 };
+    }
+    wanderers[u.id].tx = tx;
+    wanderers[u.id].ty = ty;
+  });
+  // remove gone users
+  Object.keys(wanderers).forEach(id => { if (!seen.has(id)) delete wanderers[id]; });
+}
+
+function drawWanderers() {
+  Object.values(wanderers).forEach(w => {
+    if (w.tx !== undefined) {
+      w.x = lerp(w.x, w.tx, 0.06);
+      w.y = lerp(w.y, w.ty, 0.06);
+    }
+    const pulse = 1 + 0.2 * Math.sin(clock * 1.8 + w.phase);
+    const r = 3.5 * pulse;
+
+    const gr = ctx.createRadialGradient(w.x, w.y, 0, w.x, w.y, r * 5);
+    gr.addColorStop(0, 'rgba(80,200,200,0.3)');
+    gr.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = gr;
+    ctx.beginPath();
+    ctx.arc(w.x, w.y, r * 5, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = `rgba(100,220,220,${0.7 + 0.3 * Math.sin(clock * 1.8 + w.phase)})`;
+    ctx.beginPath();
+    ctx.arc(w.x, w.y, r, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
 // --- data ---
 let allEntities = [];
 
@@ -517,15 +574,22 @@ async function fetchEntities() {
   try { allEntities = await fetch('/entities').then(r => r.json()); } catch {}
 }
 
+async function fetchPresence() {
+  try {
+    const p = await fetch('/presence').then(r => r.json());
+    updateWanderers(p.users || []);
+  } catch {}
+}
+
 async function fetchField() {
   try {
     const f = await fetch('/field?interest=curiosity+exploration+encounter').then(r => r.json());
     updateNodes(f, allEntities);
 
-    document.getElementById('position').textContent      = f.position || '—';
-    document.getElementById('density').textContent       = ((f.density||0)*100).toFixed(0) + '%';
+    document.getElementById('position').textContent       = f.position || '—';
+    document.getElementById('density').textContent        = ((f.density||0)*100).toFixed(0) + '%';
     document.getElementById('presence-count').textContent = f.presence || 0;
-    document.getElementById('conn').textContent          = 'live';
+    document.getElementById('conn').textContent           = 'live';
     const drift = f.drift && f.drift.length ? '› drifting toward ' + f.drift[0].toward : '';
     document.getElementById('drift').textContent = drift;
   } catch {
@@ -535,7 +599,9 @@ async function fetchField() {
 
 fetchEntities().then(() => {
   fetchField();
+  fetchPresence();
   setInterval(fetchField,    4000);
+  setInterval(fetchPresence, 4000);
   setInterval(fetchEntities, 30000);
 });
 animate();
