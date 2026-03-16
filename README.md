@@ -315,7 +315,7 @@ nearとの出会いを明示的に記録。関心ベクトルを更新 (alpha=0.
 - [x] **コネクタ** — `POST /connect/rss` (RSS取り込み) / `POST /connect/url` (URLテキスト取り込み)
 - [x] **CORS 対応** — ブラウザ拡張からのリクエストを許可
 - [x] **ブラウザ拡張** — Manifest V3、ページ閲覧を散策に変換 (`extension/`)
-- [ ] **activity vector** — エンティティの活動状態のリアルタイム更新
+- [x] **activity vector** — encounter のたびに更新、「今どんな関心が集まっているか」を反映
 - [ ] **identity の永続化改善** — ローカルファイルからDBへ
 - [ ] **インターネット公開** — LAN外からアクセス可能にする
 
@@ -410,4 +410,4 @@ extension/
 
 ---
 
-*最終更新: 2026-03-16 (prototype v4 — connectors + browser extension)*
+*最終更新: 2026-03-16 (prototype v5 — activity vector)*

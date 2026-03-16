@@ -354,8 +354,9 @@ async fn post_entity(
     let emb  = embedding::embed(text).map_err(|e| e.to_string())?;
     let kind = req.kind.unwrap_or(EntityKind::Data);
 
-    let mut entity    = Entity::new(kind, &req.label);
-    entity.embedding  = Some(emb);
+    let mut entity      = Entity::new(kind, &req.label);
+    entity.activity_vec = Some(emb.clone());
+    entity.embedding    = Some(emb);
     let summary = EntitySummary {
         id:          entity.id,
         label:       entity.label.clone(),
@@ -405,14 +406,32 @@ async fn post_encounter(
     let mut identity = Identity::load(&req.user_id)
         .map_err(|_| format!("identity {} not found", req.user_id))?;
 
-    let graph = state.graph.lock().unwrap();
-    let near_embeddings: Vec<Vec<f32>> = graph.graph.node_indices()
-        .filter_map(|idx| {
-            let e = &graph.graph[idx];
-            if req.near_labels.contains(&e.label) { e.embedding.clone() } else { None }
-        })
-        .collect();
-    drop(graph);
+    // near エンティティの embedding を収集 + ID を記録
+    let (near_embeddings, near_ids): (Vec<Vec<f32>>, Vec<uuid::Uuid>) = {
+        let graph = state.graph.lock().unwrap();
+        graph.graph.node_indices()
+            .filter_map(|idx| {
+                let e = &graph.graph[idx];
+                if req.near_labels.contains(&e.label) {
+                    e.embedding.clone().map(|emb| (emb, e.id))
+                } else {
+                    None
+                }
+            })
+            .unzip()
+    };
+
+    // ユーザーの関心ベクトルを取得 (encounter後のblend前)
+    let user_interest = identity.interest_vec.clone();
+
+    // near エンティティの activity_vec をユーザーの関心で更新
+    // alpha=0.90: encounter よりやや遅い変化
+    {
+        let mut graph = state.graph.lock().unwrap();
+        for id in &near_ids {
+            graph.update_entity_activity(id, &user_interest, 0.90);
+        }
+    }
 
     // グローバル活動カウンタを更新 → drift に反映
     {
@@ -489,8 +508,9 @@ async fn connect_rss(
             continue;
         }
         if let Ok(emb) = embedding::embed(&text) {
-            let mut entity   = Entity::new(EntityKind::Stream, &label);
-            entity.embedding = Some(emb);
+            let mut entity      = Entity::new(EntityKind::Stream, &label);
+            entity.activity_vec = Some(emb.clone());
+            entity.embedding    = Some(emb);
             graph.add_entity(entity);
             labels.push(label);
         }
@@ -548,8 +568,9 @@ async fn connect_url(
     let label = req.label.unwrap_or(page_title.clone());
 
     let emb = embedding::embed(&seed_text).map_err(|e| e.to_string())?;
-    let mut entity   = Entity::new(EntityKind::Data, &label);
-    entity.embedding = Some(emb);
+    let mut entity      = Entity::new(EntityKind::Data, &label);
+    entity.activity_vec = Some(emb.clone());
+    entity.embedding    = Some(emb);
     state.graph.lock().unwrap().add_entity(entity);
 
     tracing::info!("url connect: added '{}' from {}", label, req.url);
@@ -599,7 +620,8 @@ async fn main() {
     let embeddings = embedding::embed_batch(texts).expect("embed failed");
     for ((label, kind), emb) in labels.into_iter().zip(embeddings) {
         let mut entity = Entity::new(kind, label);
-        entity.embedding = Some(emb);
+        entity.activity_vec = Some(emb.clone()); // 初期 activity = 自身の意味ベクトル
+        entity.embedding    = Some(emb);
         space.add_entity(entity);
     }
 

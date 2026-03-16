@@ -66,6 +66,27 @@ impl SpaceGraph {
         idx
     }
 
+    /// エンティティの activity_vec を更新する
+    /// alpha: 既存ベクトルの保持率 (0.85 = ゆっくり変化)
+    /// interest_vec: このエンティティに来たユーザーの関心ベクトル
+    pub fn update_entity_activity(&mut self, id: &Uuid, interest_vec: &[f32], alpha: f32) {
+        if let Some(&idx) = self.index_map.get(id) {
+            let entity = &mut self.graph[idx];
+            entity.last_active = chrono::Utc::now();
+            match &mut entity.activity_vec {
+                Some(av) if av.len() == interest_vec.len() => {
+                    for (a, b) in av.iter_mut().zip(interest_vec.iter()) {
+                        *a = alpha * *a + (1.0 - alpha) * b;
+                    }
+                }
+                _ => {
+                    // 未初期化 or 次元違い → そのまま上書き
+                    entity.activity_vec = Some(interest_vec.to_vec());
+                }
+            }
+        }
+    }
+
     pub fn remove_entity(&mut self, id: &Uuid) -> bool {
         if let Some(idx) = self.index_map.remove(id) {
             self.graph.remove_node(idx);
