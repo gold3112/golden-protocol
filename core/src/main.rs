@@ -21,6 +21,7 @@ use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio_stream::{Stream, StreamExt as _, wrappers::IntervalStream};
+use tower_http::cors::{Any, CorsLayer};
 use uuid::Uuid;
 
 // --- 共有状態 ---
@@ -432,6 +433,129 @@ async fn post_encounter(
     Ok(Json(to_summary(&identity)))
 }
 
+// --- コネクタ ---
+
+#[derive(Deserialize)]
+struct RssConnectRequest {
+    url:       String,
+    max_items: Option<usize>,
+}
+
+#[derive(Deserialize)]
+struct UrlConnectRequest {
+    url:   String,
+    label: Option<String>,
+}
+
+#[derive(Serialize)]
+struct ConnectResult {
+    added:  usize,
+    labels: Vec<String>,
+}
+
+/// POST /connect/rss — RSS/Atom フィードを Stream エンティティとして取り込む
+async fn connect_rss(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<RssConnectRequest>,
+) -> Result<Json<ConnectResult>, String> {
+    let max = req.max_items.unwrap_or(20);
+
+    let bytes = reqwest::get(&req.url).await
+        .map_err(|e| e.to_string())?
+        .bytes().await
+        .map_err(|e| e.to_string())?;
+
+    let channel = rss::Channel::read_from(&bytes[..])
+        .map_err(|e| e.to_string())?;
+
+    let mut labels = Vec::new();
+    let mut graph  = state.graph.lock().unwrap();
+
+    for item in channel.items().iter().take(max) {
+        let title = item.title().unwrap_or("untitled").to_string();
+        let desc  = item.description().unwrap_or("").to_string();
+        let text  = format!("{} {}", title, desc);
+
+        // HTML タグを除去
+        let text = scraper::Html::parse_fragment(&text)
+            .root_element()
+            .text()
+            .collect::<String>();
+        let text = text.trim().chars().take(500).collect::<String>();
+
+        let label = title.chars().take(60).collect::<String>();
+        // 重複チェック
+        if graph.graph.node_indices().any(|i| graph.graph[i].label == label) {
+            continue;
+        }
+        if let Ok(emb) = embedding::embed(&text) {
+            let mut entity   = Entity::new(EntityKind::Stream, &label);
+            entity.embedding = Some(emb);
+            graph.add_entity(entity);
+            labels.push(label);
+        }
+    }
+
+    tracing::info!("rss connect: added {} entities from {}", labels.len(), req.url);
+    Ok(Json(ConnectResult { added: labels.len(), labels }))
+}
+
+/// POST /connect/url — URL のテキストを抽出して Data エンティティとして追加
+async fn connect_url(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<UrlConnectRequest>,
+) -> Result<Json<ConnectResult>, String> {
+    let html = reqwest::get(&req.url).await
+        .map_err(|e| e.to_string())?
+        .text().await
+        .map_err(|e| e.to_string())?;
+
+    let doc = scraper::Html::parse_document(&html);
+
+    // title タグ
+    let title = scraper::Selector::parse("title").unwrap();
+    let page_title = doc.select(&title)
+        .next()
+        .map(|e| e.text().collect::<String>())
+        .unwrap_or_else(|| req.url.clone());
+    let page_title = page_title.trim().chars().take(80).collect::<String>();
+
+    // body テキスト抽出 (script/style を除く)
+    let body_sel  = scraper::Selector::parse("body").unwrap();
+    let skip_sel  = scraper::Selector::parse("script, style, nav, footer").unwrap();
+    let body_text = doc.select(&body_sel)
+        .next()
+        .map(|body| {
+            body.descendants()
+                .filter(|n| n.value().is_text())
+                .filter(|n| {
+                    // script/style の子テキストを除外
+                    !n.ancestors().any(|a| {
+                        a.value().as_element()
+                            .map(|_| skip_sel.matches(&scraper::ElementRef::wrap(a).unwrap()))
+                            .unwrap_or(false)
+                    })
+                })
+                .map(|n| n.value().as_text().unwrap().trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .unwrap_or_default();
+    let body_text = body_text.trim().chars().take(800).collect::<String>();
+    let seed_text = format!("{} {}", page_title, body_text);
+
+    let label = req.label.unwrap_or(page_title.clone());
+
+    let emb = embedding::embed(&seed_text).map_err(|e| e.to_string())?;
+    let mut entity   = Entity::new(EntityKind::Data, &label);
+    entity.embedding = Some(emb);
+    state.graph.lock().unwrap().add_entity(entity);
+
+    tracing::info!("url connect: added '{}' from {}", label, req.url);
+    Ok(Json(ConnectResult { added: 1, labels: vec![label] }))
+}
+
 // --- ユーティリティ ---
 
 fn fallback_interest(interest: &Option<String>) -> Vec<f32> {
@@ -505,6 +629,11 @@ async fn main() {
         });
     }
 
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
     let app = Router::new()
         .route("/field",         get(get_field))
         .route("/field/stream",  get(stream_field))
@@ -514,6 +643,9 @@ async fn main() {
         .route("/identity/new",  get(new_identity))
         .route("/identity/:id",  get(get_identity))
         .route("/encounter",     post(post_encounter))
+        .route("/connect/rss",   post(connect_rss))
+        .route("/connect/url",   post(connect_url))
+        .layer(cors)
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:7331").await.unwrap();

@@ -312,6 +312,9 @@ nearとの出会いを明示的に記録。関心ベクトルを更新 (alpha=0.
 ### 未実装
 
 - [x] **空間が育つ仕組み** — `POST /entities` でエンティティを動的追加、`DELETE /entity/:id` で削除
+- [x] **コネクタ** — `POST /connect/rss` (RSS取り込み) / `POST /connect/url` (URLテキスト取り込み)
+- [x] **CORS 対応** — ブラウザ拡張からのリクエストを許可
+- [x] **ブラウザ拡張** — Manifest V3、ページ閲覧を散策に変換 (`extension/`)
 - [ ] **activity vector** — エンティティの活動状態のリアルタイム更新
 - [ ] **identity の永続化改善** — ローカルファイルからDBへ
 - [ ] **インターネット公開** — LAN外からアクセス可能にする
@@ -369,4 +372,42 @@ SSEストリーム。2秒ごとに `field` イベントとして field state を
 
 ---
 
-*最終更新: 2026-03-16 (prototype v3 — dynamic entities)*
+#### `POST /connect/rss`
+
+RSS/Atom フィードを Stream エンティティとして一括取り込む。
+
+```json
+{ "url": "https://hnrss.org/frontpage", "max_items": 20 }
+```
+
+#### `POST /connect/url`
+
+URL のテキストを抽出して Data エンティティとして追加する。
+
+```json
+{ "url": "https://example.com/article", "label": "optional label" }
+```
+
+---
+
+### ブラウザ拡張 (`extension/`)
+
+```
+extension/
+├── manifest.json   Manifest V3
+├── content.js      ページテキスト抽出 + SPA対応URL監視
+├── background.js   SSE接続管理 + identity永続化 (chrome.storage)
+├── popup.html      field state 表示UI
+├── popup.js
+└── popup.css
+```
+
+**インストール方法 (開発版):**
+1. Chrome で `chrome://extensions` を開く
+2. 「デベロッパーモード」を有効化
+3. 「パッケージ化されていない拡張機能を読み込む」→ `extension/` を選択
+4. サーバーを起動してウェブを閲覧すると popup に near/horizon/drift が現れる
+
+---
+
+*最終更新: 2026-03-16 (prototype v4 — connectors + browser extension)*

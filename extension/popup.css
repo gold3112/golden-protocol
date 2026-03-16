@@ -1,0 +1,140 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  width: 320px;
+  min-height: 200px;
+  background: #0a0a0f;
+  color: #c8c8d8;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 12px;
+}
+
+#header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 10px 14px 6px;
+  border-bottom: 1px solid #1e1e2e;
+}
+
+#position {
+  font-size: 13px;
+  color: #e0e0f0;
+  font-weight: bold;
+  letter-spacing: 0.03em;
+}
+
+#density {
+  font-size: 10px;
+  color: #555570;
+}
+
+#field {
+  padding: 8px 14px;
+}
+
+section {
+  margin-bottom: 10px;
+}
+
+h2 {
+  font-size: 9px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: #44445a;
+  margin-bottom: 4px;
+}
+
+ul {
+  list-style: none;
+}
+
+/* near: 明るく、距離バーあり */
+#near-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  color: #d0d0e8;
+}
+
+#near-list .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #7070e0;
+  flex-shrink: 0;
+}
+
+#near-list .bar {
+  height: 2px;
+  background: #3a3a60;
+  border-radius: 1px;
+  flex-grow: 1;
+  position: relative;
+}
+
+#near-list .bar-fill {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  background: #6060c0;
+  border-radius: 1px;
+}
+
+/* horizon: 薄く */
+#horizon-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  color: #555568;
+}
+
+#horizon-list .dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #333350;
+  flex-shrink: 0;
+}
+
+#divider {
+  height: 1px;
+  background: #1a1a28;
+  margin: 6px 0;
+}
+
+/* drift */
+#drift-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  color: #886644;
+}
+
+#drift-list .arrow {
+  color: #cc8844;
+  font-size: 11px;
+}
+
+#footer {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 14px 10px;
+  border-top: 1px solid #1e1e2e;
+  color: #333348;
+  font-size: 10px;
+}
+
+#status.connected { color: #446644; }
+#status.error     { color: #664444; }
+
+.empty {
+  color: #2a2a3a;
+  font-style: italic;
+}
