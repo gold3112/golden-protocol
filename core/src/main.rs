@@ -1106,10 +1106,44 @@ async fn main() {
                 tracing::info!("default feed seeded: +{} from {}", added, url);
             }
 
-            // 1時間ごとに再取り込み
+            // 1時間ごとに再取り込み + 古い記事をローテーション
             let mut interval = tokio::time::interval(Duration::from_secs(3600));
             loop {
                 interval.tick().await;
+
+                // 古い未訪問 Stream エンティティを除去
+                // 条件: kind=Stream かつ last_active が2時間以上前 かつ activity≈embedding (誰も来ていない)
+                let stale_ids: Vec<Uuid> = {
+                    let graph = state_c.graph.lock().unwrap();
+                    let cutoff = Utc::now() - chrono::Duration::hours(2);
+                    graph.graph.node_indices().filter_map(|idx| {
+                        let e = &graph.graph[idx];
+                        if e.kind != EntityKind::Stream { return None; }
+                        if e.last_active > cutoff      { return None; }
+                        // activity_vec と embedding のコサイン類似度を計算
+                        // 0.99 以上 = ほぼ decay しきった = 誰も来ていない
+                        let sim = match (e.activity_vec.as_ref(), e.embedding.as_ref()) {
+                            (Some(a), Some(b)) if a.len() == b.len() => {
+                                let dot: f32  = a.iter().zip(b.iter()).map(|(x,y)| x*y).sum();
+                                let na: f32   = a.iter().map(|x| x*x).sum::<f32>().sqrt();
+                                let nb: f32   = b.iter().map(|x| x*x).sum::<f32>().sqrt();
+                                if na > 0.0 && nb > 0.0 { dot / (na * nb) } else { 1.0 }
+                            }
+                            _ => 1.0,
+                        };
+                        if sim >= 0.99 { Some(e.id) } else { None }
+                    }).collect()
+                };
+                if !stale_ids.is_empty() {
+                    let mut graph = state_c.graph.lock().unwrap();
+                    for id in &stale_ids {
+                        graph.remove_entity(id);
+                        let _ = identity::delete_entity_db(id);
+                    }
+                    tracing::info!("entity rotation: removed {} stale stream entities", stale_ids.len());
+                }
+
+                // 新しい記事を取り込む
                 let feeds = identity::load_feeds();
                 tracing::info!("rss auto-ingest: processing {} feeds", feeds.len());
                 for (url, max) in feeds {
