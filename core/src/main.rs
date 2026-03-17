@@ -661,7 +661,7 @@ canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
   </div>
 </div>
 
-<div id="hint">scroll or ↑↓ to wander · mouse to look · click to arrive</div>
+<div id="hint">click to enter · WASD · mouse to look</div>
 
 <script>
 const canvas = document.getElementById('c');
@@ -791,106 +791,89 @@ function updateNodes(field, allEntities) {
   });
 }
 
-// camera: mouse pans horizontally; scroll/keys/auto-drift move in Z and X
+// ─── FPS controls ─────────────────────────────────
 const _keys = {};
-document.addEventListener('keydown', e => { _keys[e.key] = true; });
-document.addEventListener('keyup',   e => { _keys[e.key] = false; });
+let _locked = false;
 
+// Pointer Lock: click canvas → capture mouse for FPS look
+canvas.addEventListener('click', () => {
+  if (!_locked) canvas.requestPointerLock();
+});
+document.addEventListener('pointerlockchange', () => {
+  _locked = document.pointerLockElement === canvas;
+  canvas.style.cursor = _locked ? 'none' : 'default';
+  document.getElementById('hint').textContent =
+    _locked ? 'WASD · mouse look · click to select · ESC to release'
+            : 'click to enter · WASD · mouse to look';
+});
+
+// Mouse look (only when locked)
+document.addEventListener('mousemove', e => {
+  if (!_locked) return;
+  camYaw   += e.movementX * 0.0022;
+  camPitch += e.movementY * 0.0022;
+  camPitch  = Math.max(-0.70, Math.min(0.70, camPitch));
+});
+
+// Click while locked = select entity at crosshair center
+canvas.addEventListener('mousedown', e => {
+  if (!_locked || e.button !== 0) return;
+  const hit = findNearestNode(cx, H * 0.48, 80);
+  if (hit) showPanel(hit);
+});
+
+document.addEventListener('keydown', e => {
+  _keys[e.key] = true;
+  // '/' → wander bar
+  const active = document.activeElement;
+  const isInput = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA');
+  if (e.key === '/' && !isInput) { e.preventDefault(); document.getElementById('wander-input')?.focus(); }
+});
+document.addEventListener('keyup', e => { _keys[e.key] = false; });
+
+// Scroll: move forward/back (fallback when not locked)
 canvas.addEventListener('wheel', e => {
-  // scroll forward = enter space, backward = retreat
-  camVZ += e.deltaY * 0.18;
+  const fwdZ = Math.cos(camYaw), fwdX = Math.sin(camYaw);
+  camZ += fwdZ * e.deltaY * 0.12;
+  camX += fwdX * e.deltaY * 0.12;
+  if (camZ < 0) camZ = 0;
 }, { passive: true });
 
 function updateCamera() {
-  // yaw/pitch inertia (from drag release)
-  camYaw   += camYawV;
-  camPitch += camPitchV;
-  camPitch  = Math.max(-0.72, Math.min(0.72, camPitch));
-  camYawV  *= 0.86;
-  camPitchV *= 0.86;
-
-  // keyboard movement (only when not typing)
   const isTyping = document.activeElement &&
     (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA');
-  if (!isTyping) {
-    if (_keys['ArrowUp']    || _keys['w'] || _keys['W']) camVZ +=  2.2;
-    if (_keys['ArrowDown']  || _keys['s'] || _keys['S']) camVZ -=  1.8;
-    if (_keys['ArrowLeft']  || _keys['a'] || _keys['A']) camVX -=  1.0;
-    if (_keys['ArrowRight'] || _keys['d'] || _keys['D']) camVX +=  1.0;
-  }
+  if (isTyping) return;
 
-  // auto-drift: gentle pull toward nearest bright near entity
-  let nearestZ = null, nearestX = null, nearestDist = Infinity;
-  Object.values(nodes).forEach(n => {
-    if (n.b > 0.75 && n.wz !== undefined) {
-      const d = Math.abs(n.wz - camZ) + Math.abs(n.wx - camX) * 0.3;
-      if (d < nearestDist) { nearestDist = d; nearestZ = n.wz; nearestX = n.wx; }
-    }
-  });
-  if (nearestZ !== null) {
-    const targetZ = nearestZ - 60;
-    if (camZ < targetZ) camVZ += (targetZ - camZ) * 0.00012;
-    camVX += (nearestX - camX) * 0.000055;
-  }
+  const speed  = 5.0;
+  const fwdX   = Math.sin(camYaw), fwdZ = Math.cos(camYaw);
+  const rtX    = Math.cos(camYaw), rtZ  = -Math.sin(camYaw);
 
-  // physics
-  camVZ *= 0.88;
-  camVX *= 0.84;
-  camZ  += camVZ;
-  camX  += camVX;
-  if (camZ < 0) { camZ = 0; camVZ = Math.max(0, camVZ); }
-  if (Math.abs(camX) > 400) camVX *= -0.3;
+  if (_keys['w'] || _keys['W'] || _keys['ArrowUp'])    { camX += fwdX*speed; camZ += fwdZ*speed; }
+  if (_keys['s'] || _keys['S'] || _keys['ArrowDown'])  { camX -= fwdX*speed; camZ -= fwdZ*speed; }
+  if (_keys['a'] || _keys['A'] || _keys['ArrowLeft'])  { camX -= rtX*speed;  camZ -= rtZ*speed;  }
+  if (_keys['d'] || _keys['D'] || _keys['ArrowRight']) { camX += rtX*speed;  camZ += rtZ*speed;  }
+
+  if (camZ < 0) camZ = 0;
+}
+
+// Crosshair drawn when locked
+function drawCrosshair() {
+  if (!_locked) return;
+  const x = cx, y = H * 0.48;
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.moveTo(x - 9, y); ctx.lineTo(x + 9, y);
+  ctx.moveTo(x, y - 9); ctx.lineTo(x, y + 9);
+  ctx.stroke();
+  ctx.restore();
 }
 
 function lerp(a, b, t) { return a + (b - a) * t; }
 
-// --- drag to look / click to select ---
 let hoveredNode = null;
-let _dragging = false, _hasDragged = false;
-let _dragLastX = 0, _dragLastY = 0;
-
-canvas.addEventListener('mousedown', e => {
-  if (e.button !== 0) return;
-  _dragging   = true;
-  _hasDragged = false;
-  _dragLastX  = e.clientX;
-  _dragLastY  = e.clientY;
-  camYawV = camPitchV = 0;  // stop inertia on new drag
-  e.preventDefault();
-});
-
-window.addEventListener('mousemove', e => {
-  mouseX = e.clientX;
-  mouseY = e.clientY;
-  if (_dragging) {
-    const dx = e.clientX - _dragLastX;
-    const dy = e.clientY - _dragLastY;
-    if (Math.abs(dx) + Math.abs(dy) > 3) _hasDragged = true;
-    camYaw   += dx * 0.007;
-    camPitch += dy * 0.005;
-    camPitch  = Math.max(-0.72, Math.min(0.72, camPitch));
-    // capture velocity for inertia after release
-    camYawV   = dx * 0.007;
-    camPitchV = dy * 0.005;
-    _dragLastX = e.clientX;
-    _dragLastY = e.clientY;
-  } else {
-    const hit = findNearestNode(e.clientX, e.clientY, 44);
-    if (hit !== hoveredNode) hoveredNode = hit;
-  }
-});
-
-window.addEventListener('mouseup', e => {
-  if (!_dragging) return;
-  _dragging = false;
-  if (!_hasDragged) {
-    // pure click — select node
-    const hit = findNearestNode(e.clientX, e.clientY, 44);
-    if (hit) showPanel(hit);
-  }
-});
-
-canvas.addEventListener('mouseleave', () => { mouseX = -999; mouseY = -999; });
 
 function findNearestNode(mx, my, maxDist) {
   let best = null, bestD = maxDist;
@@ -1085,6 +1068,7 @@ function animate() {
   drawWanderers();
   drawSelf();
   drawVignette();   // fog over everything
+  drawCrosshair();
 }
 
 function drawNode(n) {
@@ -1457,8 +1441,10 @@ function enterSpace(text) {
   setTimeout(() => el.style.display = 'none', 1200);
   // welcome ripples
   spawnWelcomeRipples();
-  // hint fades out after 6s
-  setTimeout(() => document.getElementById('hint').classList.add('hidden'), 6000);
+  // request pointer lock so player can start moving immediately
+  setTimeout(() => canvas.requestPointerLock(), 400);
+  // hint fades out after 8s
+  setTimeout(() => document.getElementById('hint').classList.add('hidden'), 8000);
   startSSE();
 }
 
@@ -1472,15 +1458,6 @@ if (_wi) {
 }
 
 // '/' key: wanderバーにフォーカス
-document.addEventListener('keydown', e => {
-  const active = document.activeElement;
-  const isInput = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA');
-  if (e.key === '/' && !isInput) {
-    e.preventDefault();
-    const wi = document.getElementById('wander-input');
-    if (wi) wi.focus();
-  }
-});
 
 document.getElementById('entry-enter').addEventListener('click', () => {
   enterSpace(document.getElementById('entry-input').value);
