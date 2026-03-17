@@ -462,7 +462,10 @@ canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
   font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase;
   color: #404060; margin-top: 4px;
 }
-#bottom { display: flex; justify-content: space-between; align-items: flex-end; }
+#bottom {
+  display: flex; justify-content: space-between; align-items: flex-end;
+  position: relative;
+}
 #drift { font-size: 11px; color: #a07830; min-height: 18px; letter-spacing: 0.06em; }
 #footer-right { text-align: right; }
 #conn {
@@ -476,25 +479,61 @@ canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
   transition: all 0.2s;
 }
 #footer-link a:hover { color: #9090d0; border-color: #6060b0; }
-#cli-hint {
-  font-size: 9px; color: #303052; letter-spacing: 0.06em;
-  margin-top: 5px; font-family: inherit;
+
+/* ─── wander bar ────────────────────────────────── */
+#wander-bar {
+  position: absolute;
+  left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px;
+  pointer-events: auto;
+  opacity: 0.18; transition: opacity 0.4s;
 }
+#wander-bar:hover, #wander-bar:focus-within { opacity: 0.9; }
+#wander-label { font-size: 11px; color: #686890; }
+#wander-input {
+  background: transparent; border: none;
+  border-bottom: 1px solid #383858;
+  color: #9898c8; font-family: inherit; font-size: 11px;
+  width: 200px; padding: 4px 0; outline: none;
+  letter-spacing: 0.05em; text-align: center;
+  transition: border-color 0.3s, width 0.3s;
+}
+#wander-input:focus { border-color: #6060a8; width: 260px; }
+#wander-input::placeholder { color: #282848; }
+
+/* ─── drift: clickable ──────────────────────────── */
+.drift-link {
+  cursor: pointer; transition: color 0.2s;
+  pointer-events: auto;
+}
+.drift-link:hover { color: #c89840; }
 
 /* ─── entity panel ──────────────────────────────── */
 #panel {
   position: fixed;
+  right: 28px; top: 50%; transform: translateY(-50%);
+  left: auto;
   width: 240px;
   background: rgba(8,8,20,0.96);
   border: 1px solid #282848;
   padding: 20px;
   pointer-events: auto;
-  opacity: 0; transition: opacity 0.25s ease;
+  opacity: 0; transition: opacity 0.25s ease, transform 0.25s ease;
   max-height: 70vh; overflow-y: auto;
   backdrop-filter: blur(12px);
   box-shadow: 0 8px 48px rgba(0,0,0,0.7);
 }
 #panel.visible { opacity: 1; }
+
+/* ─── panel wander button ───────────────────────── */
+#panel-wander {
+  display: block; width: 100%;
+  background: none; border: 1px solid #303060;
+  color: #6060a8; font-family: inherit; font-size: 10px;
+  letter-spacing: 0.12em; padding: 7px 0; cursor: pointer;
+  margin-bottom: 14px; transition: all 0.2s;
+}
+#panel-wander:hover { border-color: #6060b0; color: #9898d8; }
 #panel-kind {
   font-size: 9px; letter-spacing: 0.22em; text-transform: uppercase;
   color: #585890; margin-bottom: 10px;
@@ -598,9 +637,12 @@ canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
   </div>
   <div id="bottom">
     <div id="drift"></div>
+    <div id="wander-bar">
+      <span id="wander-label">›</span>
+      <input id="wander-input" type="text" placeholder="what draws you now..." autocomplete="off" spellcheck="false" maxlength="120">
+    </div>
     <div id="footer-right">
-      <div id="footer-link"><a href="https://github.com/gold3112/golden-protocol" target="_blank">source / extension →</a></div>
-      <div id="cli-hint">curl space.gold3112.online/field?interest=...&amp;format=text</div>
+      <div id="footer-link"><a href="https://github.com/gold3112/golden-protocol" target="_blank">source →</a></div>
     </div>
   </div>
 </div>
@@ -611,6 +653,7 @@ canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
   <div id="panel-kind"></div>
   <div id="panel-label"></div>
   <a id="panel-search" href="#" target="_blank">search →</a>
+  <button id="panel-wander" style="display:none">wander toward this →</button>
   <div id="panel-messages"></div>
   <div id="panel-msg-form">
     <input id="panel-msg-input" type="text" placeholder="say something..." autocomplete="off" maxlength="280">
@@ -803,20 +846,23 @@ function renderPanelMessages(label) {
 
 function showPanel(node) {
   const panel = document.getElementById('panel');
-  // position panel near the entity, clamped to screen
-  const PW = 224, PH = 300;
-  const ex = node.rx ?? node.x, ey = node.ry ?? node.y;
-  let left = ex + 20, top = ey - 50;
-  if (left + PW > W - 16) left = ex - PW - 20;
-  left = Math.max(12, left);
-  top  = Math.max(12, Math.min(H - PH - 12, top));
-  panel.style.left = left + 'px';
-  panel.style.top  = top  + 'px';
 
   document.getElementById('panel-kind').textContent  = node.kind;
   document.getElementById('panel-label').textContent = node.label;
   const q = encodeURIComponent(node.label);
   document.getElementById('panel-search').href = `https://www.google.com/search?q=${q}`;
+
+  // wander toward ボタン (wanderer自身には表示しない)
+  const wanderBtn = document.getElementById('panel-wander');
+  if (wanderBtn) {
+    if (node.kind && node.kind !== 'Human') {
+      wanderBtn.style.display = 'block';
+      wanderBtn.onclick = () => { updateInterest(node.label); closePanel(); };
+    } else {
+      wanderBtn.style.display = 'none';
+    }
+  }
+
   currentPanelEntity = node.label;
   renderPanelMessages(node.label);
   document.getElementById('panel-msg-input').value = '';
@@ -824,10 +870,12 @@ function showPanel(node) {
   document.getElementById('hint').classList.add('hidden');
 }
 
-document.getElementById('panel-close').addEventListener('click', () => {
+function closePanel() {
   document.getElementById('panel').classList.remove('visible');
   currentPanelEntity = null;
-});
+}
+
+document.getElementById('panel-close').addEventListener('click', closePanel);
 
 async function sendMessage() {
   const input = document.getElementById('panel-msg-input');
@@ -997,8 +1045,8 @@ function drawNode(n) {
   ctx.fill();
 
   // label reveals gradually as you approach — distant entities are anonymous dots
-  if (isHovered || b > 0.35) {
-    const alpha = isHovered ? 0.90 : Math.min(0.78, (b - 0.35) * 2.8);
+  if (isHovered || b > 0.52) {
+    const alpha = isHovered ? 0.90 : Math.min(0.78, (b - 0.52) * 3.5);
     const fs = Math.max(8, Math.round((isHovered ? 12 : 8 + b * 4) * Math.min(1.3, proj.ps)));
     ctx.fillStyle = `rgba(${r},${g},${bl},${alpha})`;
     ctx.font = `${fs}px "SF Mono",monospace`;
@@ -1006,7 +1054,7 @@ function drawNode(n) {
   }
 
   // most recent message floating near entity (near zone only)
-  if (b > 0.45) {
+  if (b > 0.62) {
     const msgs = entityMessages[n.label];
     if (msgs && msgs.length > 0) {
       const msg  = msgs[msgs.length - 1];
@@ -1267,6 +1315,37 @@ function getOrCreateWebId(interestHint) {
     .catch(() => null);
 }
 
+async function updateInterest(newText) {
+  const t = newText.trim();
+  if (!t) return;
+  interest = t;
+  sessionStorage.setItem('gp_interest', interest);
+
+  // 方向変更をencounterとして記録 → interest_vecが更新される
+  const stored = localStorage.getItem(WEB_ID_KEY);
+  if (stored) {
+    try {
+      const userId = JSON.parse(stored).id;
+      await fetch('/encounter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          position: currentPosition,
+          near_labels: [],
+          interest_text: interest,
+        }),
+      });
+    } catch(_) {}
+  }
+
+  // wanderバーのplaceholderを更新
+  const wi = document.getElementById('wander-input');
+  if (wi) { wi.value = ''; wi.placeholder = interest.slice(0, 40); }
+
+  startSSE(); // 新しい方向でSSE再接続
+}
+
 function enterSpace(text) {
   interest = text.trim() || 'curiosity exploration wandering';
   sessionStorage.setItem('gp_interest', interest);
@@ -1285,6 +1364,26 @@ function enterSpace(text) {
   startSSE();
 }
 
+// wander bar
+const _wi = document.getElementById('wander-input');
+if (_wi) {
+  _wi.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { updateInterest(_wi.value); _wi.blur(); }
+    if (e.key === 'Escape') _wi.blur();
+  });
+}
+
+// '/' key: wanderバーにフォーカス
+document.addEventListener('keydown', e => {
+  const active = document.activeElement;
+  const isInput = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA');
+  if (e.key === '/' && !isInput) {
+    e.preventDefault();
+    const wi = document.getElementById('wander-input');
+    if (wi) wi.focus();
+  }
+});
+
 document.getElementById('entry-enter').addEventListener('click', () => {
   enterSpace(document.getElementById('entry-input').value);
 });
@@ -1297,6 +1396,7 @@ document.getElementById('entry-skip').addEventListener('click', () => {
 
 // --- data ---
 let allEntities = [];
+let currentPosition = 'plaza';
 
 async function fetchEntities() {
   try {
@@ -1337,8 +1437,18 @@ function handleFieldState(f) {
   document.getElementById('position').textContent = pos.length > 48 ? pos.slice(0, 46) + '…' : pos;
   document.getElementById('presence-count').textContent = f.presence || 0;
   document.getElementById('conn').textContent = 'live';
-  const drift = f.drift && f.drift.length ? '› drifting toward ' + f.drift[0].toward : '';
-  document.getElementById('drift').textContent = drift;
+  currentPosition = f.position || 'plaza';
+  const driftEl = document.getElementById('drift');
+  if (f.drift && f.drift.length) {
+    driftEl.innerHTML = f.drift.slice(0, 2).map(d =>
+      `<span class="drift-link" data-toward="${escapeHtml(d.toward)}">› ${escapeHtml(d.toward)}</span>`
+    ).join('  ');
+    driftEl.querySelectorAll('.drift-link').forEach(el => {
+      el.addEventListener('click', () => updateInterest(el.dataset.toward));
+    });
+  } else {
+    driftEl.textContent = '';
+  }
 }
 
 function handleSpaceEvent(evt) {
@@ -1417,6 +1527,8 @@ function startSSE() {
 if (interest) {
   document.getElementById('entry').style.display = 'none';
   setTimeout(() => document.getElementById('hint').classList.add('hidden'), 6000);
+  const _wii = document.getElementById('wander-input');
+  if (_wii && interest) _wii.placeholder = interest.slice(0, 40);
   startSSE();
 }
 
