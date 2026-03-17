@@ -884,6 +884,25 @@ function drawConstellation() {
 }
 
 
+const convergencePulses = [];
+
+function drawConvergencePulses() {
+  for (let i = convergencePulses.length - 1; i >= 0; i--) {
+    const cp = convergencePulses[i];
+    cp.t += 0.008;
+    if (cp.t > 1) { convergencePulses.splice(i, 1); continue; }
+    const n = nodes[cp.label];
+    if (!n || !n.rx) continue;
+    const radius = cp.t * 120 * (n.projScale || 1);
+    const alpha = (1 - cp.t) * 0.4;
+    ctx.strokeStyle = `rgba(180,140,50,${alpha})`;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([6, 10]);
+    ctx.beginPath(); ctx.arc(n.rx, n.ry, radius, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+}
+
 // --- canvas animation ---
 let clock = 0;
 function animate() {
@@ -915,6 +934,7 @@ function animate() {
     drawNode(n);
   });
 
+  drawConvergencePulses();
   drawConstellation();
   drawWanderers();
   drawSelf();
@@ -1152,10 +1172,11 @@ function updateWanderers(users) {
     if (!node) return;
     const [ox, oy] = idOffset(u.id);
     const tx = (node.rx || node.x) + ox, ty = (node.ry || node.y) + oy;
-    if (!wanderers[u.id]) wanderers[u.id] = { x: tx, y: ty, phase: Math.random() * Math.PI * 2, name: u.name || null };
+    if (!wanderers[u.id]) wanderers[u.id] = { x: tx, y: ty, phase: Math.random() * Math.PI * 2, name: u.name || null, serverId: u.id, encounterFlash: 0 };
     wanderers[u.id].tx = tx;
     wanderers[u.id].ty = ty;
     wanderers[u.id].name = u.name || null;
+    wanderers[u.id].serverId = u.id;
   });
   Object.keys(wanderers).forEach(id => { if (!seen.has(id)) delete wanderers[id]; });
 }
@@ -1180,6 +1201,32 @@ function drawWanderers() {
       ctx.fillStyle = `rgba(100,220,220,${0.5 + 0.2 * Math.sin(clock * 1.8 + w.phase)})`;
       ctx.font = '9px "SF Mono",monospace';
       ctx.fillText(w.name, w.x + r * 2 + 4, w.y + 3);
+    }
+    // moving_toward: 向かっている方向を点線で示す
+    if (w.moving_toward) {
+      const target = nodes[w.moving_toward];
+      if (target && target.rx) {
+        const dx = target.rx - w.x, dy = target.ry - w.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist > 20 && dist < 600) {
+          const alpha = 0.12 * (1 + 0.3 * Math.sin(clock * 1.5 + w.phase));
+          ctx.strokeStyle = `rgba(80,200,200,${alpha})`;
+          ctx.lineWidth = 0.5;
+          ctx.setLineDash([3, 9]);
+          ctx.beginPath(); ctx.moveTo(w.x, w.y); ctx.lineTo(target.rx, target.ry); ctx.stroke();
+          ctx.setLineDash([]);
+        }
+      }
+    }
+    // encounter flash
+    if (w.encounterFlash > 0) {
+      const ef = w.encounterFlash;
+      w.encounterFlash = Math.max(0, ef - 0.02);
+      const gr2 = ctx.createRadialGradient(w.x, w.y, 0, w.x, w.y, r * 12 * ef);
+      gr2.addColorStop(0, `rgba(200,180,80,${ef * 0.5})`);
+      gr2.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = gr2;
+      ctx.beginPath(); ctx.arc(w.x, w.y, r * 12 * ef, 0, Math.PI * 2); ctx.fill();
     }
   });
 }
@@ -1209,6 +1256,17 @@ function drawWelcomeRipples() {
   }
 }
 
+// identity — localStorage で永続化 (webクライアント用)
+const WEB_ID_KEY = 'gp_web_id';
+function getOrCreateWebId(interestHint) {
+  const stored = localStorage.getItem(WEB_ID_KEY);
+  if (stored) return Promise.resolve(JSON.parse(stored).id);
+  return fetch('/identity/new?interest=' + encodeURIComponent(interestHint || 'curiosity exploration'))
+    .then(r => r.json())
+    .then(d => { localStorage.setItem(WEB_ID_KEY, JSON.stringify({id: d.id})); return d.id; })
+    .catch(() => null);
+}
+
 function enterSpace(text) {
   interest = text.trim() || 'curiosity exploration wandering';
   sessionStorage.setItem('gp_interest', interest);
@@ -1224,7 +1282,7 @@ function enterSpace(text) {
   spawnWelcomeRipples();
   // hint fades out after 6s
   setTimeout(() => document.getElementById('hint').classList.add('hidden'), 6000);
-  startPolling();
+  startSSE();
 }
 
 document.getElementById('entry-enter').addEventListener('click', () => {
@@ -1238,7 +1296,7 @@ document.getElementById('entry-skip').addEventListener('click', () => {
 });
 
 // --- data ---
-let allEntities = [], pollStarted = false;
+let allEntities = [];
 
 async function fetchEntities() {
   try {
@@ -1262,42 +1320,104 @@ async function fetchPresence() {
   } catch {}
 }
 
-async function fetchField() {
-  try {
-    const enc = encodeURIComponent(interest || 'curiosity exploration wandering');
-    const nameParam = authorName ? '&name=' + encodeURIComponent(authorName) : '';
-    const f   = await fetch('/field?interest=' + enc + nameParam).then(r => r.json());
-    updateNodes(f, allEntities);
-    // updateCamera() is called each frame in animate()
-    updateMessages(f);
-    const pos = f.position || '—';
-    document.getElementById('position').textContent = pos.length > 48 ? pos.slice(0, 46) + '…' : pos;
-    document.getElementById('presence-count').textContent = f.presence || 0;
-    document.getElementById('conn').textContent           = 'live';
-    const drift = f.drift && f.drift.length ? '› drifting toward ' + f.drift[0].toward : '';
-    document.getElementById('drift').textContent = drift;
-  } catch {
-    document.getElementById('conn').textContent = 'no signal';
+function handleFieldState(f) {
+  updateNodes(f, allEntities);
+  updateMessages(f);
+
+  // wandererのmoving_toward情報をマージ
+  const directions = {};
+  [...(f.near || []), ...(f.horizon || [])].forEach(e => {
+    if (e.moving_toward) directions[e.id] = e.moving_toward;
+  });
+  Object.values(wanderers).forEach(w => {
+    if (directions[w.serverId]) w.moving_toward = directions[w.serverId];
+  });
+
+  const pos = f.position || '—';
+  document.getElementById('position').textContent = pos.length > 48 ? pos.slice(0, 46) + '…' : pos;
+  document.getElementById('presence-count').textContent = f.presence || 0;
+  document.getElementById('conn').textContent = 'live';
+  const drift = f.drift && f.drift.length ? '› drifting toward ' + f.drift[0].toward : '';
+  document.getElementById('drift').textContent = drift;
+}
+
+function handleSpaceEvent(evt) {
+  if (evt.kind === 'emergence') {
+    // 新エンティティ誕生: 特別なrippleを発生
+    const n = nodes[evt.label];
+    if (n && n.wx !== undefined) {
+      const [cr, cg, cb] = [200, 168, 64]; // gold
+      for (let i = 0; i < 3; i++) {
+        births.push({ wx: n.wx, wy: n.wy + 8, wz: n.wz, t: i * 0.3, r: cr, g: cg, b: cb });
+      }
+    }
+    // UIに一時表示
+    flashEvent('✦ ' + evt.label + ' emerged');
+
+  } else if (evt.kind === 'convergence') {
+    // 収束: 対象エンティティにpulseリングを追加
+    const n = nodes[evt.label];
+    if (n && n.wx !== undefined) {
+      convergencePulses.push({ label: evt.label, t: 0, detail: evt.detail || '' });
+    }
+    flashEvent('⟳ gathering near ' + evt.label);
+
+  } else if (evt.kind === 'encounter') {
+    // 出会い: wandererを一時的に強調
+    const w = Object.values(wanderers).find(w => w.name === evt.label || w.rawLabel === evt.label);
+    if (w) w.encounterFlash = 1.0;
+    flashEvent('◎ ' + evt.label + ' is near');
   }
 }
 
-function startPolling() {
-  if (pollStarted) return;
-  pollStarted = true;
-  fetchEntities().then(() => {
-    fetchField();
-    fetchPresence();
-    setInterval(fetchField,    4000);
-    setInterval(fetchPresence, 4000);
-    setInterval(fetchEntities, 30000);
+function flashEvent(text) {
+  const el = document.getElementById('conn');
+  const prev = el.textContent;
+  el.textContent = text;
+  el.style.color = '#a08030';
+  setTimeout(() => {
+    el.textContent = prev;
+    el.style.color = '';
+  }, 4000);
+}
+
+let sseConn = null;
+
+function startSSE() {
+  if (sseConn) sseConn.close();
+
+  getOrCreateWebId(interest).then(userId => {
+    const params = new URLSearchParams({ interest: interest || 'curiosity exploration wandering', passive: 'true' });
+    if (userId)    params.set('user_id', userId);
+    if (authorName) params.set('name', authorName);
+
+    sseConn = new EventSource('/field/stream?' + params.toString());
+
+    sseConn.addEventListener('field', e => {
+      try { handleFieldState(JSON.parse(e.data)); } catch(_) {}
+    });
+
+    sseConn.addEventListener('space', e => {
+      try { handleSpaceEvent(JSON.parse(e.data)); } catch(_) {}
+    });
+
+    sseConn.onerror = () => {
+      document.getElementById('conn').textContent = 'no signal';
+    };
   });
+
+  // entities と presence は引き続きポーリング (SSEに含まれないため)
+  fetchEntities();
+  fetchPresence();
+  setInterval(fetchEntities, 30000);
+  setInterval(fetchPresence, 6000);
 }
 
 // returning visitor: skip entry screen
 if (interest) {
   document.getElementById('entry').style.display = 'none';
   setTimeout(() => document.getElementById('hint').classList.add('hidden'), 6000);
-  startPolling();
+  startSSE();
 }
 
 animate();
