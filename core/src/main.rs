@@ -486,9 +486,9 @@ canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
   left: 50%; transform: translateX(-50%);
   display: flex; align-items: center; gap: 8px;
   pointer-events: auto;
-  opacity: 0.18; transition: opacity 0.4s;
+  opacity: 0.55; transition: opacity 0.4s;
 }
-#wander-bar:hover, #wander-bar:focus-within { opacity: 0.9; }
+#wander-bar:hover, #wander-bar:focus-within { opacity: 1.0; }
 #wander-label { font-size: 11px; color: #686890; }
 #wander-input {
   background: transparent; border: none;
@@ -719,8 +719,11 @@ function project(wx, wy, wz) {
 
 function entityWorldPos(angle, dist) {
   const wz = 55 + dist * 780;
-  const wx = Math.sin(angle) * wz * 0.70;
-  const wy = 16 + Math.sin(angle * 2.7 + dist * 9.3) * 52;
+  // spread is decoupled from depth: near entities get generous horizontal room
+  const spread = 280 + dist * 320;
+  const wx = Math.sin(angle) * spread;
+  // more vertical range to avoid stacking
+  const wy = Math.sin(angle * 2.7 + dist * 9.3) * 130;
   return { wx, wy, wz };
 }
 
