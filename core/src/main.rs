@@ -16,11 +16,12 @@ use field::{DriftSignal, FieldState, ObservedEntity};
 use graph::{Entity, EntityKind, SpaceGraph};
 use identity::Identity;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio_stream::{Stream, StreamExt as _, wrappers::IntervalStream};
+use tokio_stream::{Stream, wrappers::IntervalStream};
+use futures_util::StreamExt as _;
 use axum::{middleware::{self, Next}, http::StatusCode};
 use governor::{clock::DefaultClock, state::keyed::DefaultKeyedStateStore, Quota, RateLimiter};
 use std::num::NonZeroU32;
@@ -29,6 +30,15 @@ use tower_http::cors::{Any, CorsLayer};
 use uuid::Uuid;
 
 type IpLimiter = RateLimiter<IpAddr, DefaultKeyedStateStore<IpAddr>, DefaultClock>;
+
+/// 空間で起きたイベント — SSEでwandererに届く
+#[derive(Clone, Debug, Serialize)]
+struct SpaceEvent {
+    kind:   String,           // "emergence" | "convergence" | "encounter"
+    label:  String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detail: Option<String>,
+}
 
 // --- 共有状態 ---
 
@@ -45,6 +55,8 @@ struct AppState {
     node_id:         Uuid,
     /// 接続中のピアノード: url -> node_id
     peers:           Mutex<HashMap<String, Uuid>>,
+    /// 空間イベントのbroadcastチャンネル
+    event_tx:        tokio::sync::broadcast::Sender<SpaceEvent>,
 }
 
 /// SSE接続中ユーザーの状態 (永続化しない)
@@ -53,6 +65,8 @@ struct UserPresence {
     id:           Uuid,
     name:         String,
     interest_vec: Vec<f32>,
+    spatial_vec:  Vec<f32>,           // 散策: 時間と共に動く位置ベクトル（interest_vecから独立）
+    moving_toward: Option<String>,    // 今向かっている方向のエンティティラベル
     position:     String,
     last_seen:    DateTime<Utc>,
 }
@@ -141,9 +155,19 @@ fn compute_field_state(state: &AppState, q: &FieldQuery) -> FieldState {
 
     let mut identity = q.user_id.and_then(|uid| Identity::load(&uid).ok());
 
-    let user_interest = identity.as_ref()
-        .map(|i| i.interest_vec.clone())
-        .unwrap_or_else(|| fallback_interest(&q.interest));
+    // SSE接続中ユーザーはspatial_vec（散策で動く位置）を優先する
+    // これが「あなたが今どこにいるか」を決める
+    let user_interest = {
+        let spatial = q.user_id.and_then(|uid| {
+            let users = state.connected_users.lock().unwrap();
+            users.get(&uid)
+                .map(|u| u.spatial_vec.clone())
+                .filter(|v| v.iter().any(|&x| x != 0.0))
+        });
+        spatial
+            .or_else(|| identity.as_ref().map(|i| i.interest_vec.clone()))
+            .unwrap_or_else(|| fallback_interest(&q.interest))
+    };
 
     let tau = 86400.0_f64;
 
@@ -194,11 +218,12 @@ fn compute_field_state(state: &AppState, q: &FieldQuery) -> FieldState {
             let d = compute_distance(sem, rel, act, tmp, att, weights);
             (
                 ObservedEntity {
-                    id:         entity.id,
-                    label:      entity.label.clone(),
-                    distance:   d,
-                    visibility: Default::default(),
-                    components: Some([sem, rel, act, tmp, att]),
+                    id:           entity.id,
+                    label:        entity.label.clone(),
+                    distance:     d,
+                    visibility:   Default::default(),
+                    components:   Some([sem, rel, act, tmp, att]),
+                    moving_toward: None,
                 },
                 d,
                 entity.embedding.clone(),
@@ -213,13 +238,20 @@ fn compute_field_state(state: &AppState, q: &FieldQuery) -> FieldState {
         let att = distance::attention_dist(&user_interest, &user.interest_vec);
         let d   = compute_distance(sem, 0.5, 0.5, 0.0, att, weights);
         let short_id = &user.id.to_string()[..8];
+        // 名前が設定されていればそれを使う。空間に「誰か」として存在する
+        let label = if !user.name.is_empty() {
+            user.name.clone()
+        } else {
+            format!("wanderer_{}", short_id)
+        };
         scored.push((
             ObservedEntity {
-                id:         user.id,
-                label:      format!("wanderer_{}", short_id),
-                distance:   d,
-                visibility: Default::default(),
-                components: Some([sem, 0.5, 0.5, 0.0, att]),
+                id:           user.id,
+                label,
+                distance:     d,
+                visibility:   Default::default(),
+                components:   Some([sem, 0.5, 0.5, 0.0, att]),
+                moving_toward: user.moving_toward.clone(),
             },
             d,
             Some(user.interest_vec.clone()),
@@ -1439,38 +1471,45 @@ fn render_field_text(field: &FieldState) -> String {
     o
 }
 
-/// GET /field/stream — SSE: field stateをリアルタイムにプッシュ
-/// 接続中はこのユーザーが他ユーザーの near/horizon に現れる
+/// GET /field/stream — SSEストリーム
+/// 接続中はspatial_vecが散策アルゴリズムで動き続ける
+/// 空間イベント (emergence, convergence, encounter) もここに届く
 async fn stream_field(
     State(state): State<Arc<AppState>>,
     Query(q): Query<FieldQuery>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let user_id = q.user_id.unwrap_or_else(Uuid::new_v4);
 
-    // 接続時: ユーザーを登録
     let interest_vec = q.user_id
         .and_then(|uid| Identity::load(&uid).ok())
         .map(|i| i.interest_vec.clone())
         .unwrap_or_else(|| fallback_interest(&q.interest));
 
+    // spatial_vec: stored interest_vecから出発し、散策で動く
+    let spatial_vec = interest_vec.clone();
+
     {
         let mut users = state.connected_users.lock().unwrap();
         users.insert(user_id, UserPresence {
-            id:           user_id,
-            name:         q.name.clone().unwrap_or_default(),
-            interest_vec: interest_vec.clone(),
-            position:     "plaza".to_string(),
-            last_seen:    Utc::now(),
+            id:            user_id,
+            name:          q.name.clone().unwrap_or_default(),
+            interest_vec:  interest_vec.clone(),
+            spatial_vec,
+            moving_toward: None,
+            position:      "plaza".to_string(),
+            last_seen:     Utc::now(),
         });
         tracing::info!("user {} connected ({} total)", user_id, users.len());
     }
 
     let state_c = Arc::clone(&state);
     let q_c     = q.clone();
+    let mut event_rx = state.event_tx.subscribe();
+    let mut prev_near_ids: HashSet<Uuid> = HashSet::new();
 
     let stream = IntervalStream::new(tokio::time::interval(Duration::from_secs(2)))
-        .map(move |_| {
-            // last_seen を更新 (これが止まると cleanup タスクが除去する)
+        .flat_map(move |_| {
+            // last_seen 更新
             {
                 let mut users = state_c.connected_users.lock().unwrap();
                 if let Some(u) = users.get_mut(&user_id) {
@@ -1480,16 +1519,126 @@ async fn stream_field(
 
             let field = compute_field_state(&state_c, &q_c);
 
-            // position を connected_users に反映 (他ユーザーから見える位置を更新)
+            // ── 散策アルゴリズム ──────────────────────────────────────────────
+            // position(t+1) = position(t) + flow(drift) + interaction(near)
+            // spatial_vecをnearとdriftの方向へゆっくり引っ張る
+            // これが「移動」。テレポートではなく連続的な漂流。
             {
+                // nearエンティティのembeddingを取得
+                let near_embs: Vec<Vec<f32>> = {
+                    let graph = state_c.graph.lock().unwrap();
+                    field.near.iter()
+                        .filter(|e| !e.label.starts_with("wanderer_") && !e.moving_toward.is_some())
+                        .filter_map(|e| {
+                            graph.graph.node_indices()
+                                .find(|&i| graph.graph[i].label == e.label)
+                                .and_then(|i| graph.graph[i].embedding.clone())
+                        })
+                        .collect()
+                };
+                // driftエンティティのembeddingを取得
+                let drift_embs: Vec<Vec<f32>> = {
+                    let graph = state_c.graph.lock().unwrap();
+                    field.drift.iter()
+                        .filter_map(|d| {
+                            graph.graph.node_indices()
+                                .find(|&i| graph.graph[i].label == d.toward)
+                                .and_then(|i| graph.graph[i].embedding.clone())
+                        })
+                        .collect()
+                };
+
                 let mut users = state_c.connected_users.lock().unwrap();
-                if let Some(u) = users.get_mut(&user_id) {
-                    u.position = field.position.clone();
+                if let Some(user) = users.get_mut(&user_id) {
+                    let dim = user.spatial_vec.len();
+                    if dim > 0 {
+                        // near引力: alpha=0.003 (非常にゆっくり)
+                        if !near_embs.is_empty() {
+                            let mut avg = vec![0.0f32; dim];
+                            for emb in &near_embs {
+                                if emb.len() == dim {
+                                    for (a, v) in avg.iter_mut().zip(emb.iter()) { *a += v; }
+                                }
+                            }
+                            avg.iter_mut().for_each(|v| *v /= near_embs.len() as f32);
+                            let alpha = 0.003f32;
+                            for (s, a) in user.spatial_vec.iter_mut().zip(avg.iter()) {
+                                *s = *s * (1.0 - alpha) + a * alpha;
+                            }
+                        }
+                        // drift引力: alpha=0.002
+                        if !drift_embs.is_empty() {
+                            let mut avg = vec![0.0f32; dim];
+                            for emb in &drift_embs {
+                                if emb.len() == dim {
+                                    for (a, v) in avg.iter_mut().zip(emb.iter()) { *a += v; }
+                                }
+                            }
+                            avg.iter_mut().for_each(|v| *v /= drift_embs.len() as f32);
+                            let alpha = 0.002f32;
+                            for (s, a) in user.spatial_vec.iter_mut().zip(avg.iter()) {
+                                *s = *s * (1.0 - alpha) + a * alpha;
+                            }
+                        }
+                        // 正規化 (単位ベクトルを維持)
+                        let norm: f32 = user.spatial_vec.iter().map(|v| v * v).sum::<f32>().sqrt();
+                        if norm > 0.0 {
+                            user.spatial_vec.iter_mut().for_each(|v| *v /= norm);
+                        }
+                    }
+                    // moving_toward: driftの最上位エンティティが「向かっている方向」
+                    user.moving_toward = field.drift.first().map(|d| d.toward.clone());
+                    user.position = field.position.clone();
                 }
             }
 
+            // ── 空間イベントの収集 ────────────────────────────────────────────
+            let mut items: Vec<Result<Event, Infallible>> = Vec::new();
+
+            // broadcastチャンネルから溜まっているイベントを全部受け取る
+            loop {
+                match event_rx.try_recv() {
+                    Ok(evt) => {
+                        if let Ok(json) = serde_json::to_string(&evt) {
+                            items.push(Ok(Event::default().event("space").data(json)));
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+
+            // ── encounter検知 ─────────────────────────────────────────────────
+            // 別のwandererが自分のnear zoneに入ってきた瞬間を検知する
+            let current_near_ids: HashSet<Uuid> = field.near.iter()
+                .filter(|e| {
+                    // wanderer_* または named wanderer (moving_towardを持つもの)
+                    e.label.starts_with("wanderer_") || e.moving_toward.is_some()
+                })
+                .map(|e| e.id)
+                .collect();
+
+            for &id in &current_near_ids {
+                if !prev_near_ids.contains(&id) {
+                    // 新しいwandererがnearに現れた
+                    if let Some(e) = field.near.iter().find(|e| e.id == id) {
+                        let evt = SpaceEvent {
+                            kind:   "encounter".to_string(),
+                            label:  e.label.clone(),
+                            detail: e.moving_toward.clone(),
+                        };
+                        if let Ok(json) = serde_json::to_string(&evt) {
+                            items.push(Ok(Event::default().event("space").data(json)));
+                        }
+                    }
+                }
+            }
+            prev_near_ids = current_near_ids;
+
+            // field イベント (常に末尾)
             let json = serde_json::to_string(&field).unwrap_or_default();
-            Ok::<Event, Infallible>(Event::default().event("field").data(json))
+            items.push(Ok(Event::default().event("field").data(json)));
+
+            tokio_stream::iter(items)
         });
 
     Sse::new(stream).keep_alive(KeepAlive::default())
@@ -1929,6 +2078,56 @@ async fn export_entities(State(state): State<Arc<AppState>>) -> Json<Vec<Entity>
     Json(entities)
 }
 
+/// GET /ambient.js — どのウェブサイトにも埋め込める ambient layer
+/// <script src="https://space.gold3112.online/ambient.js"></script>
+/// ユーザーは何も設定しない。空間がそこにある。HTTPSのように。
+async fn ambient_js() -> impl axum::response::IntoResponse {
+    let js = r#"/* Golden Protocol — ambient layer
+ * https://space.gold3112.online/ambient.js
+ * Place this script anywhere. Users configure nothing.
+ * The space is simply there. */
+(function(){
+  var SERVER='https://space.gold3112.online';
+  var KEY='gp_id';
+  function getId(){try{var s=localStorage.getItem(KEY);if(s)return JSON.parse(s).id;}catch(_){}return null;}
+  function saveId(id){try{localStorage.setItem(KEY,JSON.stringify({id:id}));}catch(_){}}
+  function context(){
+    var t=document.title||'';
+    var m=document.querySelector('meta[name="description"]');
+    var d=m?m.getAttribute('content')||'':'';
+    return encodeURIComponent((t+' '+d).slice(0,200));
+  }
+  function absorb(id){
+    var url=SERVER+'/field?passive=true&user_id='+id+'&interest='+context();
+    if(typeof fetch!=='undefined'){
+      fetch(url,{method:'GET',keepalive:true}).catch(function(){});
+    }
+  }
+  function init(){
+    var id=getId();
+    if(id){absorb(id);return;}
+    fetch(SERVER+'/identity/new?interest=curiosity+exploration+discovery')
+      .then(function(r){return r.json();})
+      .then(function(d){saveId(d.id);absorb(d.id);})
+      .catch(function(){});
+  }
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',init);
+  }else{
+    setTimeout(init,0);
+  }
+})();
+"#;
+    (
+        [
+            ("Content-Type", "application/javascript; charset=utf-8"),
+            ("Cache-Control", "public, max-age=3600"),
+            ("Access-Control-Allow-Origin", "*"),
+        ],
+        js,
+    )
+}
+
 // --- ユーティリティ ---
 
 fn cosine_sim(a: &[f32], b: &[f32]) -> f32 {
@@ -2007,6 +2206,7 @@ async fn main() {
         .into_iter().collect::<HashMap<String, Uuid>>();
     tracing::info!("node_id: {} ({} known peers)", node_id, saved_peers.len());
 
+    let (event_tx, _) = tokio::sync::broadcast::channel::<SpaceEvent>(64);
     let state = Arc::new(AppState {
         graph:           Mutex::new(space),
         weights:         DistanceWeights::default(),
@@ -2015,6 +2215,7 @@ async fn main() {
         rate_limiter:    IpLimiter::keyed(quota),
         node_id,
         peers:           Mutex::new(saved_peers),
+        event_tx,
     });
 
     // 切断ユーザーの cleanup タスク (15秒以上 last_seen が更新されなければ除去)
@@ -2160,11 +2361,72 @@ async fn main() {
                     entity.activity_vec = Some(centroid);
                     let _ = identity::save_entity(&entity);
                     state_c.graph.lock().unwrap().add_entity(entity);
+                    let _ = state_c.event_tx.send(SpaceEvent {
+                        kind:   "emergence".to_string(),
+                        label:  new_label.clone(),
+                        detail: Some(format!("{} converging", cluster.len())),
+                    });
                     tracing::info!(
                         "emergence: '{}' spawned from {} converging users",
                         new_label, cluster.len()
                     );
                 }
+            }
+        });
+    }
+
+    // Convergence検知タスク (60秒ごと)
+    // 複数のSSE接続ユーザーが同じエンティティのnear圏にいる = 場の収束
+    {
+        let state_c = Arc::clone(&state);
+        let tx_c    = state.event_tx.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(60));
+            let mut prev_convergences: HashSet<String> = HashSet::new();
+            loop {
+                interval.tick().await;
+
+                let users: Vec<Vec<f32>> = {
+                    let u = state_c.connected_users.lock().unwrap();
+                    u.values().map(|u| u.spatial_vec.clone()).collect()
+                };
+                if users.len() < 2 { prev_convergences.clear(); continue; }
+
+                let entities: Vec<(String, Vec<f32>)> = {
+                    let graph = state_c.graph.lock().unwrap();
+                    graph.graph.node_indices()
+                        .filter_map(|i| {
+                            let e = &graph.graph[i];
+                            e.embedding.as_ref().map(|emb| (e.label.clone(), emb.clone()))
+                        })
+                        .collect()
+                };
+
+                let mut current_convergences: HashSet<String> = HashSet::new();
+
+                for (label, emb) in &entities {
+                    let count = users.iter()
+                        .filter(|sv| {
+                            if sv.len() != emb.len() { return false; }
+                            let sim = cosine_sim(sv, emb);
+                            (1.0 - sim) < 0.30 // near閾値相当
+                        })
+                        .count();
+
+                    if count >= 2 {
+                        current_convergences.insert(label.clone());
+                        // 新しいconvergenceだけ通知 (毎回送らない)
+                        if !prev_convergences.contains(label) {
+                            let _ = tx_c.send(SpaceEvent {
+                                kind:   "convergence".to_string(),
+                                label:  label.clone(),
+                                detail: Some(format!("{} present", count)),
+                            });
+                            tracing::info!("convergence: {} users near '{}'", count, label);
+                        }
+                    }
+                }
+                prev_convergences = current_convergences;
             }
         });
     }
@@ -2395,6 +2657,7 @@ async fn main() {
     let app = Router::new()
         .route("/",              get(landing))
         .route("/privacy-policy", get(privacy_policy))
+        .route("/ambient.js",    get(ambient_js))
         .route("/field",         get(get_field))
         .route("/field/stream",  get(stream_field))
         .route("/presence",      get(get_presence))

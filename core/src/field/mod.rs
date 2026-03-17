@@ -21,6 +21,9 @@ pub struct ObservedEntity {
     /// 距離の5成分 [semantic, relational, activity, temporal, attention]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub components: Option<[f32; 5]>,
+    /// 今向かっている方向のエンティティラベル (wandererのみ)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub moving_toward: Option<String>,
 }
 
 impl Default for ObservedEntity {
@@ -31,6 +34,7 @@ impl Default for ObservedEntity {
             distance: 1.0,
             visibility: Visibility::Beyond,
             components: None,
+            moving_toward: None,
         }
     }
 }

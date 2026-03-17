@@ -100,6 +100,27 @@ function arrive() {
   }, 1100);
 }
 
+function handleSpaceEvent(evt) {
+  // 空間イベントを footer に一時的に表示
+  const st = document.getElementById('status');
+  const original = st.textContent;
+  const originalClass = st.className;
+
+  const messages = {
+      emergence:   `${evt.label} appeared`,
+      convergence: `${evt.label} — ${evt.detail || 'gathering'}`,
+      encounter:   `${evt.label} is near`,
+  };
+  const text = messages[evt.kind] || evt.kind;
+
+  st.textContent = text;
+  st.className = 'event';
+  setTimeout(() => {
+      st.textContent = original;
+      st.className = originalClass;
+  }, 4000);
+}
+
 async function connect() {
   try {
     const [local, session] = await Promise.all([
@@ -111,7 +132,11 @@ async function connect() {
       interest: session.pageText || 'curiosity exploration encounter',
       passive:  'true',
     });
-    if (local.userId) params.set('user_id', local.userId);
+    // nameはuserIdの先頭8文字 (安定した匿名識別子)
+    if (local.userId) {
+        params.set('user_id', local.userId);
+        params.set('name', 'wanderer_' + local.userId.slice(0, 8));
+    }
 
     if (sse) sse.close();
 
@@ -123,6 +148,13 @@ async function connect() {
       try {
         const field = JSON.parse(e.data);
         render(field);
+      } catch (_) {}
+    });
+
+    sse.addEventListener('space', (e) => {
+      try {
+          const evt = JSON.parse(e.data);
+          handleSpaceEvent(evt);
       } catch (_) {}
     });
 

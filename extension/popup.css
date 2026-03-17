@@ -200,6 +200,7 @@ ul {
 
 #status.connected { color: #446644; }
 #status.error     { color: #664444; }
+#status.event     { color: #a08030; }
 
 .empty {
   color: #2a2a3a;
