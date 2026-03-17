@@ -661,7 +661,7 @@ canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
   </div>
 </div>
 
-<div id="hint">move toward something. the space responds.</div>
+<div id="hint">scroll or ↑↓ to wander · mouse to look · click to arrive</div>
 
 <script>
 const canvas = document.getElementById('c');
@@ -703,17 +703,19 @@ function labelAngle(label) {
 const CAM = { fov: 520, h: 140, d: 190 };
 const HORIZON_FRAC = 0.40;
 let camLookX = 0;
+let camZ = 0, camVZ = 0;   // camera Z position + velocity (forward/back movement)
+let camX = 0, camVX = 0;   // camera X position + velocity (lateral drift)
 
 function project(wx, wy, wz) {
-  const relZ = wz + CAM.d;
+  const relZ = (wz - camZ) + CAM.d;
   if (relZ < 1) return null;
   const s = CAM.fov / relZ;
-  const pan = camLookX * (1 - Math.min(1, wz / 900));
+  const pan = camLookX * (1 - Math.min(1, relZ / 900));
   return {
-    sx: cx + pan + wx * s,
+    sx: cx + pan + (wx - camX) * s,
     sy: H * HORIZON_FRAC + (CAM.h - wy) * s,
     s,
-    ps: s * 380 / CAM.fov,   // normalized scale (1.0 at ~200 units)
+    ps: Math.min(s * 380 / CAM.fov, 2.8),  // cap scale — can't "fly into" an entity
   };
 }
 
@@ -773,10 +775,56 @@ function updateNodes(field, allEntities) {
   });
 }
 
-// camera pan: mouse shifts the look-at point horizontally
+// camera: mouse pans horizontally; scroll/keys/auto-drift move in Z and X
+const _keys = {};
+document.addEventListener('keydown', e => { _keys[e.key] = true; });
+document.addEventListener('keyup',   e => { _keys[e.key] = false; });
+
+canvas.addEventListener('wheel', e => {
+  // scroll forward = enter space, backward = retreat
+  camVZ += e.deltaY * 0.18;
+}, { passive: true });
+
 function updateCamera() {
-  const target = mouseX > 0 ? (mouseX - cx) * 0.11 : 0;
-  camLookX = lerp(camLookX, target, 0.022);
+  // horizontal look: mouse position
+  const lookTarget = mouseX > 0 ? (mouseX - cx) * 0.11 : 0;
+  camLookX = lerp(camLookX, lookTarget, 0.022);
+
+  // keyboard movement (only when not typing)
+  const isTyping = document.activeElement &&
+    (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA');
+  if (!isTyping) {
+    if (_keys['ArrowUp']    || _keys['w'] || _keys['W']) camVZ +=  2.2;
+    if (_keys['ArrowDown']  || _keys['s'] || _keys['S']) camVZ -=  1.8;
+    if (_keys['ArrowLeft']  || _keys['a'] || _keys['A']) camVX -=  1.0;
+    if (_keys['ArrowRight'] || _keys['d'] || _keys['D']) camVX +=  1.0;
+  }
+
+  // auto-drift: gentle pull toward nearest bright near entity
+  let nearestZ = null, nearestX = null, nearestDist = Infinity;
+  Object.values(nodes).forEach(n => {
+    if (n.b > 0.75 && n.wz !== undefined) {
+      const d = Math.abs(n.wz - camZ) + Math.abs(n.wx - camX) * 0.3;
+      if (d < nearestDist) { nearestDist = d; nearestZ = n.wz; nearestX = n.wx; }
+    }
+  });
+  if (nearestZ !== null) {
+    // drift toward entity but stop ~60 units in front (don't crash into it)
+    const targetZ = nearestZ - 60;
+    if (camZ < targetZ) camVZ += (targetZ - camZ) * 0.00012;
+    camVX += (nearestX - camX) * 0.000055;
+  }
+
+  // physics: inertia + damping
+  camVZ *= 0.88;
+  camVX *= 0.84;
+  camZ  += camVZ;
+  camX  += camVX;
+
+  // don't retreat past the starting point
+  if (camZ < 0) { camZ = 0; camVZ = Math.max(0, camVZ); }
+  // don't drift too far sideways
+  if (Math.abs(camX) > 400) camVX *= -0.3;
 }
 
 function lerp(a, b, t) { return a + (b - a) * t; }
