@@ -700,22 +700,38 @@ function labelAngle(label) {
 }
 
 // ─── 3D perspective camera ────────────────────────
-const CAM = { fov: 520, h: 140, d: 190 };
+const CAM = { fov: 520, d: 190 };
+const CAM_HEIGHT   = 140;   // camera eye level in world space
 const HORIZON_FRAC = 0.40;
-let camLookX = 0;
-let camZ = 0, camVZ = 0;   // camera Z position + velocity (forward/back movement)
-let camX = 0, camVX = 0;   // camera X position + velocity (lateral drift)
+let camZ = 0, camVZ = 0;    // forward/back
+let camX = 0, camVX = 0;    // lateral
+let camYaw   = 0, camYawV   = 0;   // horizontal rotation (drag left/right)
+let camPitch = 0, camPitchV = 0;   // vertical tilt (drag up/down)
 
 function project(wx, wy, wz) {
-  const relZ = (wz - camZ) + CAM.d;
-  if (relZ < 1) return null;
-  const s = CAM.fov / relZ;
-  const pan = camLookX * (1 - Math.min(1, relZ / 900));
+  // translate to camera-relative
+  const dx = wx - camX;
+  const dy = wy - CAM_HEIGHT;
+  const dz = wz - camZ;
+
+  // yaw rotation (turn left/right around Y axis)
+  const cy = Math.cos(camYaw), sy = Math.sin(camYaw);
+  const rx_y =  dx * cy - dz * sy;
+  const rz_y =  dx * sy + dz * cy;
+
+  // pitch rotation (look up/down around X axis)
+  const cp = Math.cos(camPitch), sp = Math.sin(camPitch);
+  const ry  =  dy * cp - rz_y * sp;
+  const rz  =  dy * sp + rz_y * cp;
+
+  const depth = rz + CAM.d;
+  if (depth < 1) return null;
+  const s = CAM.fov / depth;
   return {
-    sx: cx + pan + (wx - camX) * s,
-    sy: H * HORIZON_FRAC + (CAM.h - wy) * s,
+    sx: cx + rx_y * s,
+    sy: H * HORIZON_FRAC - ry * s,
     s,
-    ps: Math.min(s * 380 / CAM.fov, 2.8),  // cap scale — can't "fly into" an entity
+    ps: Math.min(s * 380 / CAM.fov, 2.8),
   };
 }
 
@@ -786,9 +802,12 @@ canvas.addEventListener('wheel', e => {
 }, { passive: true });
 
 function updateCamera() {
-  // horizontal look: mouse position
-  const lookTarget = mouseX > 0 ? (mouseX - cx) * 0.11 : 0;
-  camLookX = lerp(camLookX, lookTarget, 0.022);
+  // yaw/pitch inertia (from drag release)
+  camYaw   += camYawV;
+  camPitch += camPitchV;
+  camPitch  = Math.max(-0.72, Math.min(0.72, camPitch));
+  camYawV  *= 0.86;
+  camPitchV *= 0.86;
 
   // keyboard movement (only when not typing)
   const isTyping = document.activeElement &&
@@ -809,41 +828,69 @@ function updateCamera() {
     }
   });
   if (nearestZ !== null) {
-    // drift toward entity but stop ~60 units in front (don't crash into it)
     const targetZ = nearestZ - 60;
     if (camZ < targetZ) camVZ += (targetZ - camZ) * 0.00012;
     camVX += (nearestX - camX) * 0.000055;
   }
 
-  // physics: inertia + damping
+  // physics
   camVZ *= 0.88;
   camVX *= 0.84;
   camZ  += camVZ;
   camX  += camVX;
-
-  // don't retreat past the starting point
   if (camZ < 0) { camZ = 0; camVZ = Math.max(0, camVZ); }
-  // don't drift too far sideways
   if (Math.abs(camX) > 400) camVX *= -0.3;
 }
 
 function lerp(a, b, t) { return a + (b - a) * t; }
 
-// --- hover / click ---
+// --- drag to look / click to select ---
 let hoveredNode = null;
+let _dragging = false, _hasDragged = false;
+let _dragLastX = 0, _dragLastY = 0;
 
-canvas.addEventListener('mousemove', e => {
+canvas.addEventListener('mousedown', e => {
+  if (e.button !== 0) return;
+  _dragging   = true;
+  _hasDragged = false;
+  _dragLastX  = e.clientX;
+  _dragLastY  = e.clientY;
+  camYawV = camPitchV = 0;  // stop inertia on new drag
+  e.preventDefault();
+});
+
+window.addEventListener('mousemove', e => {
   mouseX = e.clientX;
   mouseY = e.clientY;
-  const hit = findNearestNode(e.clientX, e.clientY, 44);
-  if (hit !== hoveredNode) hoveredNode = hit;
+  if (_dragging) {
+    const dx = e.clientX - _dragLastX;
+    const dy = e.clientY - _dragLastY;
+    if (Math.abs(dx) + Math.abs(dy) > 3) _hasDragged = true;
+    camYaw   += dx * 0.007;
+    camPitch += dy * 0.005;
+    camPitch  = Math.max(-0.72, Math.min(0.72, camPitch));
+    // capture velocity for inertia after release
+    camYawV   = dx * 0.007;
+    camPitchV = dy * 0.005;
+    _dragLastX = e.clientX;
+    _dragLastY = e.clientY;
+  } else {
+    const hit = findNearestNode(e.clientX, e.clientY, 44);
+    if (hit !== hoveredNode) hoveredNode = hit;
+  }
 });
-canvas.addEventListener('mouseleave', () => { mouseX = -999; mouseY = -999; });
 
-canvas.addEventListener('click', e => {
-  const hit = findNearestNode(e.clientX, e.clientY, 44);
-  if (hit) showPanel(hit);
+window.addEventListener('mouseup', e => {
+  if (!_dragging) return;
+  _dragging = false;
+  if (!_hasDragged) {
+    // pure click — select node
+    const hit = findNearestNode(e.clientX, e.clientY, 44);
+    if (hit) showPanel(hit);
+  }
 });
+
+canvas.addEventListener('mouseleave', () => { mouseX = -999; mouseY = -999; });
 
 function findNearestNode(mx, my, maxDist) {
   let best = null, bestD = maxDist;
@@ -1174,7 +1221,7 @@ function drawBursts() {
 
 function drawSelf() {
   // viewer crosshair — fixed at ground level near camera
-  const sx = cx + camLookX * 0.18;
+  const sx = cx;
   const sy = H * 0.78;
   const pulse = 0.14 * Math.sin(clock * 2.2);
   const r = 8 + pulse * 4;
