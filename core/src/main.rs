@@ -253,10 +253,16 @@ fn compute_field_state(state: &AppState, q: &FieldQuery) -> FieldState {
     field.presence = field.near.len() + field.horizon.len();
     field.compute_density();
 
-    // position = near 上位3件のラベルから文脈を導く (最小実装: 最近傍のラベルを使用)
-    if let Some(nearest) = field.near.first() {
-        field.position = nearest.label.clone();
-    }
+    // position = nearエンティティの文脈から生成する
+    // 単一の点ではなく、意味の集まりとして場所を記述する
+    // 0件: デフォルトの "plaza" のまま（FieldState::newで設定済み）
+    // 1件: そのラベル
+    // 2件以上: 上位2件を並べて「その周辺」を表現する
+    field.position = match field.near.as_slice() {
+        [] => field.position.clone(), // "plaza" を維持
+        [one] => one.label.clone(),
+        [first, second, ..] => format!("{}, {}", first.label, second.label),
+    };
 
     // Pass 3: drift — horizonの中でグローバル活動が高いものを抽出
     let mut drift_candidates: Vec<(String, u32)> = field.horizon.iter()
@@ -319,58 +325,83 @@ body {
   font-size: 12px;
   height: 100vh;
   overflow: hidden;
-  cursor: none;
 }
 canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
 
-/* --- entry overlay --- */
+/* ─── entry overlay ─────────────────────────────── */
 #entry {
   position: fixed; inset: 0;
   display: flex; align-items: center; justify-content: center;
-  background: rgba(6,6,15,0.82);
+  background: rgba(6,6,15,0.62);
   z-index: 100;
-  transition: opacity 1.2s ease;
-  cursor: default;
+  transition: opacity 1.6s ease;
+  backdrop-filter: blur(4px);
 }
 #entry.hidden { opacity: 0; pointer-events: none; }
-#entry-box { text-align: center; max-width: 420px; padding: 0 24px; }
-#entry-title {
-  font-size: 11px; letter-spacing: 0.3em; text-transform: uppercase;
-  color: #303050; margin-bottom: 32px;
+
+#entry-box {
+  text-align: center; max-width: 380px; padding: 0 28px;
+  animation: fadeUp 0.9s cubic-bezier(0.16,1,0.3,1) forwards;
 }
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+#entry-title {
+  font-size: 9px; letter-spacing: 0.5em; text-transform: uppercase;
+  color: #c8a840; margin-bottom: 44px;
+}
+
 #entry-q {
-  font-size: 22px; color: #9090c8; font-weight: normal;
-  line-height: 1.5; margin-bottom: 10px;
+  font-size: 24px; color: #c4c4ec; font-weight: normal;
+  line-height: 1.5; margin-bottom: 14px;
+  animation: breathe 5s ease-in-out infinite;
 }
 #entry-sub {
-  font-size: 11px; color: #303048; margin-bottom: 32px; line-height: 1.8;
+  font-size: 12px; color: #6464a0; margin-bottom: 40px; line-height: 2;
 }
+
 #entry-input {
   width: 100%; background: transparent;
-  border: none; border-bottom: 1px solid #303060;
-  color: #c0c0e8; font-family: inherit; font-size: 15px;
+  border: none; border-bottom: 1px solid #484880;
+  color: #c8c8f0; font-family: inherit; font-size: 16px;
+  padding: 12px 0; outline: none; text-align: center;
+  letter-spacing: 0.06em; transition: border-color 0.3s;
+}
+#entry-input::placeholder { color: #383860; }
+#entry-input:focus { border-color: #8888d0; }
+
+#entry-name {
+  width: 100%; background: transparent;
+  border: none; border-bottom: 1px solid #252545;
+  color: #7070a8; font-family: inherit; font-size: 13px;
   padding: 10px 0; outline: none; text-align: center;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.05em; margin-bottom: 0;
   transition: border-color 0.3s;
 }
-#entry-input::placeholder { color: #282848; }
-#entry-input:focus { border-color: #6060a0; }
-#entry-actions { margin-top: 24px; display: flex; gap: 24px; justify-content: center; }
-#entry-enter {
-  background: none; border: 1px solid #404070;
-  color: #7070b0; font-family: inherit; font-size: 11px;
-  letter-spacing: 0.15em; padding: 8px 20px; cursor: pointer;
-  transition: all 0.2s;
-}
-#entry-enter:hover { border-color: #7070b0; color: #a0a0d8; }
-#entry-skip {
-  background: none; border: none; color: #282848;
-  font-family: inherit; font-size: 11px; cursor: pointer;
-  letter-spacing: 0.1em; padding: 8px 0;
-}
-#entry-skip:hover { color: #484868; }
+#entry-name::placeholder { color: #282848; }
+#entry-name:focus { border-color: #484878; }
 
-/* --- main ui --- */
+#entry-actions { margin-top: 28px; display: flex; gap: 20px; justify-content: center; align-items: center; }
+#entry-enter {
+  background: none; border: 1px solid #5858a8;
+  color: #9090d8; font-family: inherit; font-size: 11px;
+  letter-spacing: 0.22em; padding: 10px 28px; cursor: pointer;
+  transition: all 0.25s;
+}
+#entry-enter:hover {
+  border-color: #a0a0e8; color: #c8c8ff;
+  box-shadow: 0 0 28px rgba(120,120,240,0.13);
+}
+#entry-skip {
+  background: none; border: none; color: #3a3a5e;
+  font-family: inherit; font-size: 11px; cursor: pointer;
+  letter-spacing: 0.1em; padding: 8px 0; transition: color 0.2s;
+}
+#entry-skip:hover { color: #686890; }
+
+/* ─── main ui ───────────────────────────────────── */
 #ui {
   position: fixed; inset: 0;
   pointer-events: none;
@@ -379,86 +410,126 @@ canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
   padding: 28px 32px;
 }
 #top { display: flex; justify-content: space-between; align-items: flex-start; }
-#tagline { font-size: 9px; letter-spacing: 0.22em; text-transform: uppercase; color: #22223a; margin-bottom: 10px; }
-#position { font-size: 20px; color: #d4af37; letter-spacing: 0.04em; min-height: 28px; }
-#meta-line { font-size: 10px; color: #282840; margin-top: 6px; }
-#meta-line span { color: #383858; }
+#tagline {
+  font-size: 9px; letter-spacing: 0.24em; text-transform: uppercase;
+  color: #484868; margin-bottom: 10px;
+}
+#position {
+  font-size: 18px; color: #d4af37; letter-spacing: 0.03em;
+  min-height: 28px; max-width: 400px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#meta-line { font-size: 10px; color: #404060; margin-top: 6px; }
+#meta-line span { color: #585880; }
 #presence-block { text-align: right; }
-#presence-count { font-size: 28px; color: #44447a; letter-spacing: -0.02em; }
-#presence-label { font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; color: #202038; margin-top: 4px; }
+#presence-count {
+  font-size: 30px; color: #7878c0; letter-spacing: -0.02em;
+  transition: color 0.5s;
+}
+#presence-label {
+  font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase;
+  color: #404060; margin-top: 4px;
+}
 #bottom { display: flex; justify-content: space-between; align-items: flex-end; }
-#drift { font-size: 11px; color: #806020; min-height: 18px; letter-spacing: 0.05em; }
+#drift { font-size: 11px; color: #a07830; min-height: 18px; letter-spacing: 0.06em; }
 #footer-right { text-align: right; }
-#conn { font-size: 9px; letter-spacing: 0.15em; color: #1c1c30; margin-bottom: 6px; }
+#conn {
+  font-size: 9px; letter-spacing: 0.15em; color: #484868;
+  margin-bottom: 6px; transition: color 0.3s;
+}
 #footer-link { pointer-events: auto; }
-#footer-link a { font-size: 10px; color: #282848; text-decoration: none; border-bottom: 1px solid #202038; letter-spacing: 0.08em; }
-#footer-link a:hover { color: #6060a0; border-color: #4040a0; }
-#cli-hint { font-size: 9px; color: #1c1c2e; letter-spacing: 0.06em; margin-top: 5px; font-family: inherit; }
+#footer-link a {
+  font-size: 10px; color: #505080; text-decoration: none;
+  border-bottom: 1px solid #2a2a50; letter-spacing: 0.08em;
+  transition: all 0.2s;
+}
+#footer-link a:hover { color: #9090d0; border-color: #6060b0; }
+#cli-hint {
+  font-size: 9px; color: #303052; letter-spacing: 0.06em;
+  margin-top: 5px; font-family: inherit;
+}
 
-/* --- entity panel --- */
+/* ─── entity panel ──────────────────────────────── */
 #panel {
   position: fixed;
-  width: 220px; background: rgba(8,8,18,0.93);
-  border: 1px solid #18182e; padding: 18px;
+  width: 240px;
+  background: rgba(8,8,20,0.96);
+  border: 1px solid #282848;
+  padding: 20px;
   pointer-events: auto;
   opacity: 0; transition: opacity 0.25s ease;
   max-height: 70vh; overflow-y: auto;
-  backdrop-filter: blur(6px);
-  box-shadow: 0 0 40px rgba(0,0,0,0.6);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 48px rgba(0,0,0,0.7);
 }
 #panel.visible { opacity: 1; }
-#panel-kind { font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: #404060; margin-bottom: 8px; }
-#panel-label { font-size: 13px; color: #c0c0e8; line-height: 1.5; margin-bottom: 12px; word-break: break-word; }
+#panel-kind {
+  font-size: 9px; letter-spacing: 0.22em; text-transform: uppercase;
+  color: #585890; margin-bottom: 10px;
+}
+#panel-label {
+  font-size: 13px; color: #c8c8f0; line-height: 1.6;
+  margin-bottom: 14px; word-break: break-word;
+}
 #panel-search {
-  display: block; font-size: 10px; color: #505080;
+  display: block; font-size: 10px; color: #6060a8;
   text-decoration: none; letter-spacing: 0.1em;
-  border-bottom: 1px solid #1a1a30; padding-bottom: 10px; margin-bottom: 12px;
+  border-bottom: 1px solid #202040; padding-bottom: 12px; margin-bottom: 14px;
+  transition: color 0.2s, border-color 0.2s;
 }
-#panel-search:hover { color: #8080b8; border-color: #4040a0; }
+#panel-search:hover { color: #9898e0; border-color: #5050b0; }
 #panel-close {
-  position: absolute; top: 10px; right: 12px;
-  background: none; border: none; color: #303050;
-  font-family: inherit; font-size: 14px; cursor: pointer;
-  line-height: 1;
+  position: absolute; top: 12px; right: 14px;
+  background: none; border: none; color: #484870;
+  font-family: inherit; font-size: 15px; cursor: pointer;
+  line-height: 1; transition: color 0.2s;
 }
-#panel-close:hover { color: #6060a0; }
-/* messages */
-#panel-messages { margin-bottom: 10px; min-height: 20px; }
-.panel-msg { margin-bottom: 8px; }
-.panel-msg-author { font-size: 9px; color: #303058; letter-spacing: 0.1em; display: block; margin-bottom: 2px; }
-.panel-msg-text { font-size: 11px; color: #8080b0; line-height: 1.5; display: block; word-break: break-word; }
-.panel-no-msg { font-size: 10px; color: #202038; letter-spacing: 0.05em; font-style: italic; }
-/* message input */
-#panel-msg-form { display: flex; gap: 6px; margin-top: 4px; border-top: 1px solid #1a1a30; padding-top: 10px; }
+#panel-close:hover { color: #9090d0; }
+#panel-messages { margin-bottom: 12px; min-height: 20px; }
+.panel-msg { margin-bottom: 10px; }
+.panel-msg-author {
+  font-size: 9px; color: #505080; letter-spacing: 0.1em;
+  display: block; margin-bottom: 3px;
+}
+.panel-msg-text {
+  font-size: 11px; color: #9898c8; line-height: 1.6;
+  display: block; word-break: break-word;
+}
+.panel-no-msg {
+  font-size: 10px; color: #343458; letter-spacing: 0.05em; font-style: italic;
+}
+#panel-msg-form {
+  display: flex; gap: 6px; margin-top: 4px;
+  border-top: 1px solid #1e1e3a; padding-top: 12px;
+}
 #panel-msg-input {
   flex: 1; background: transparent; border: none;
-  border-bottom: 1px solid #282848; color: #9090c0;
+  border-bottom: 1px solid #303060; color: #9898c8;
   font-family: inherit; font-size: 11px; padding: 4px 0;
-  outline: none;
+  outline: none; transition: border-color 0.2s;
 }
-#panel-msg-input::placeholder { color: #202038; }
-#panel-msg-input:focus { border-color: #4040a0; }
+#panel-msg-input::placeholder { color: #282850; }
+#panel-msg-input:focus { border-color: #5858b0; }
 #panel-msg-send {
-  background: none; border: none; color: #404070;
-  font-family: inherit; font-size: 13px; cursor: pointer; padding: 0 4px;
+  background: none; border: none; color: #505090;
+  font-family: inherit; font-size: 13px; cursor: pointer;
+  padding: 0 4px; transition: color 0.2s;
 }
-#panel-msg-send:hover { color: #8080c0; }
+#panel-msg-send:hover { color: #9090d8; }
 
-/* --- hint (first time) --- */
+/* ─── hint ──────────────────────────────────────── */
 #hint {
   position: fixed; bottom: 64px; left: 50%; transform: translateX(-50%);
-  font-size: 10px; color: #252545; letter-spacing: 0.14em;
-  pointer-events: none; transition: opacity 1.5s ease;
+  font-size: 10px; color: #505078; letter-spacing: 0.16em;
+  pointer-events: none; transition: opacity 2s ease;
   white-space: nowrap;
 }
 #hint.hidden { opacity: 0; }
 
-/* entry breathing */
+/* ─── animations ────────────────────────────────── */
 @keyframes breathe {
-  0%,100% { opacity: 0.7; } 50% { opacity: 1; }
+  0%,100% { opacity: 0.72; } 50% { opacity: 1; }
 }
-#entry-q { animation: breathe 4s ease-in-out infinite; }
-/* event countdown */
 .evt-time { font-size: 9px; color: rgba(255,150,70,0.7); letter-spacing: 0.08em; }
 </style>
 </head>
@@ -470,9 +541,9 @@ canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
   <div id="entry-box">
     <div id="entry-title">Golden Protocol</div>
     <div id="entry-q">What are you thinking about?</div>
-    <div id="entry-sub">The space will form around you.<br>Others are already here.</div>
+    <div id="entry-sub">The server returns distance, not pages.<br>Others are already wandering.</div>
     <input id="entry-input" type="text" placeholder="type anything..." autocomplete="off" spellcheck="false">
-    <input id="entry-name" type="text" placeholder="your name  (optional)" autocomplete="off" spellcheck="false" style="width:100%;background:transparent;border:none;border-bottom:1px solid #232340;color:#8080b0;font-family:inherit;font-size:12px;padding:8px 0;outline:none;text-align:center;letter-spacing:0.05em;margin-bottom:24px;">
+    <input id="entry-name" type="text" placeholder="your name  (optional)" autocomplete="off" spellcheck="false">
     <div id="entry-actions">
       <button id="entry-enter">enter →</button>
       <button id="entry-skip">just wander</button>
@@ -527,13 +598,13 @@ let mouseX = -999, mouseY = -999;
 // ambient particles
 let particles = [];
 function initParticles() {
-  particles = Array.from({length: 40}, () => ({
+  particles = Array.from({length: 60}, () => ({
     x:  Math.random() * W,
     y:  Math.random() * H,
     vx: (Math.random() - 0.5) * 0.22,
     vy: (Math.random() - 0.5) * 0.22,
-    r:  0.4 + Math.random() * 0.9,
-    a:  0.012 + Math.random() * 0.035,
+    r:  0.4 + Math.random() * 1.1,
+    a:  0.018 + Math.random() * 0.05,
   }));
 }
 
@@ -553,13 +624,29 @@ function labelAngle(label) {
   return (h % 10000) / 10000 * Math.PI * 2;
 }
 
-function distToRadius(dist) {
-  const near    = Math.min(W, H) * 0.18;
-  const horizon = Math.min(W, H) * 0.36;
-  const beyond  = Math.min(W, H) * 0.46;
-  if (dist < 0.35) return near    + (dist / 0.35) * (horizon - near);
-  if (dist < 0.70) return horizon + ((dist - 0.35) / 0.35) * (beyond - horizon);
-  return beyond + ((dist - 0.70) / 0.30) * (Math.min(W, H) * 0.06);
+// ─── 3D perspective camera ────────────────────────
+const CAM = { fov: 520, h: 140, d: 190 };
+const HORIZON_FRAC = 0.40;
+let camLookX = 0;
+
+function project(wx, wy, wz) {
+  const relZ = wz + CAM.d;
+  if (relZ < 1) return null;
+  const s = CAM.fov / relZ;
+  const pan = camLookX * (1 - Math.min(1, wz / 900));
+  return {
+    sx: cx + pan + wx * s,
+    sy: H * HORIZON_FRAC + (CAM.h - wy) * s,
+    s,
+    ps: s * 380 / CAM.fov,   // normalized scale (1.0 at ~200 units)
+  };
+}
+
+function entityWorldPos(angle, dist) {
+  const wz = 55 + dist * 780;
+  const wx = Math.sin(angle) * wz * 0.70;
+  const wy = 16 + Math.sin(angle * 2.7 + dist * 9.3) * 52;
+  return { wx, wy, wz };
 }
 
 const nodes = {};
@@ -572,9 +659,9 @@ const KIND_COLOR = {
   Service: [160, 160, 200],
 };
 
-// birth ripple queue: { x, y, t, r, g, b }
+// birth ripple queue: { wx, wy, wz, t, r, g, b }
 const births = [];
-const bursts = []; // entity expiry burst
+const bursts = []; // entity expiry burst: { wx, wy, wz, t, r, g, b }
 let prevEntityLabels = new Set();
 
 function updateNodes(field, allEntities) {
@@ -587,64 +674,31 @@ function updateNodes(field, allEntities) {
     const info  = distMap[e.label];
     const dist  = info ? info.d : 0.88;
     const zone  = info ? info.zone : 'beyond';
-    const r     = distToRadius(dist);
-    const tx    = cx + Math.cos(angle) * r;
-    const ty    = cy + Math.sin(angle) * r;
-    const tb    = zone === 'near' ? 1.0 : zone === 'horizon' ? 0.35 : 0.08;
+    const { wx, wy, wz } = entityWorldPos(angle, dist);
+    const tb = zone === 'near' ? 1.0 : zone === 'horizon' ? 0.35 : 0.08;
 
     if (!nodes[e.label]) {
       nodes[e.label] = {
-        x: tx, y: ty, b: 0, kind: e.kind, label: e.label,
+        wx, wy, wz, b: 0, kind: e.kind, label: e.label,
         expiresAt: e.expires_at || null,
-        // organic drift params — unique per entity
         driftPhase: Math.random() * Math.PI * 2,
         driftFreq:  0.28 + Math.random() * 0.35,
-        driftAmp:   4 + Math.random() * 5,
+        driftAmpX:  3  + Math.random() * 5,
+        driftAmpY:  5  + Math.random() * 9,
+        pendingBirth: zone !== 'beyond',
+        birthKind: e.kind,
       };
-      // birth ripple when entering visible space
-      if (zone !== 'beyond') {
-        const [cr, cg, cb] = KIND_COLOR[e.kind] || [140, 140, 190];
-        births.push({ x: tx, y: ty, t: 0, r: cr, g: cg, b: cb });
-      }
     }
     const n = nodes[e.label];
-    n.tx = tx; n.ty = ty; n.tb = tb; n.kind = e.kind;
+    n.twx = wx; n.twy = wy; n.twz = wz; n.tb = tb; n.kind = e.kind;
     n.expiresAt = e.expires_at || null;
   });
 }
 
-// update self gravity — blends mouse position (walk) + near entity centroid (field pull)
-function updateSelfGravity(field) {
-  const near = field.near || [];
-  const maxDrift = Math.min(W, H) * 0.16;
-  // mouse target: you "walk" by moving the cursor
-  const hasMouse = mouseX > 0;
-  const mx = hasMouse ? cx + Math.max(-maxDrift, Math.min(maxDrift, (mouseX - cx) * 0.45)) : cx;
-  const my = hasMouse ? cy + Math.max(-maxDrift, Math.min(maxDrift, (mouseY - cy) * 0.45)) : cy;
-
-  if (near.length === 0) {
-    const tx = hasMouse ? mx : cx;
-    const ty = hasMouse ? my : cy;
-    selfX = lerp(selfX, tx, 0.004);
-    selfY = lerp(selfY, ty, 0.004);
-    return;
-  }
-  let wx = 0, wy = 0, wt = 0;
-  near.forEach(e => {
-    const n = nodes[e.label];
-    if (!n) return;
-    const w = Math.max(0, 1 - e.distance);
-    wx += n.x * w; wy += n.y * w; wt += w;
-  });
-  if (wt > 0) {
-    const gx = cx + Math.max(-maxDrift, Math.min(maxDrift, (wx / wt - cx) * 0.35));
-    const gy = cy + Math.max(-maxDrift, Math.min(maxDrift, (wy / wt - cy) * 0.35));
-    // 55% mouse walk + 45% field gravity
-    const tx = lerp(gx, mx, hasMouse ? 0.55 : 0);
-    const ty = lerp(gy, my, hasMouse ? 0.55 : 0);
-    selfX = lerp(selfX, tx, 0.003);
-    selfY = lerp(selfY, ty, 0.003);
-  }
+// camera pan: mouse shifts the look-at point horizontally
+function updateCamera() {
+  const target = mouseX > 0 ? (mouseX - cx) * 0.11 : 0;
+  camLookX = lerp(camLookX, target, 0.022);
 }
 
 function lerp(a, b, t) { return a + (b - a) * t; }
@@ -788,7 +842,7 @@ function drawConstellation() {
       const a = nearNodes[i], b = nearNodes[j];
       const d = Math.hypot(a.rx - b.rx, a.ry - b.ry);
       if (d > 220) continue;
-      const alpha = (1 - d / 220) * 0.055 * Math.min(a.b, b.b);
+      const alpha = (1 - d / 220) * 0.08 * Math.min(a.b, b.b);
       ctx.strokeStyle = `rgba(90,90,150,${alpha})`;
       ctx.lineWidth = 0.5;
       ctx.setLineDash([]);
@@ -797,34 +851,34 @@ function drawConstellation() {
   }
 }
 
-function drawCursor() {
-  if (mouseX < 0) return;
-  const pulse = 0.18 + 0.08 * Math.sin(clock * 3.5);
-  ctx.strokeStyle = `rgba(212,175,55,${pulse})`;
-  ctx.lineWidth = 0.8;
-  ctx.setLineDash([]);
-  ctx.beginPath(); ctx.arc(mouseX, mouseY, 9, 0, Math.PI * 2); ctx.stroke();
-  ctx.fillStyle = `rgba(212,175,55,${pulse * 1.8})`;
-  ctx.beginPath(); ctx.arc(mouseX, mouseY, 1.5, 0, Math.PI * 2); ctx.fill();
-}
 
 // --- canvas animation ---
 let clock = 0;
 function animate() {
   requestAnimationFrame(animate);
   clock += 0.016;
+  updateCamera();
 
-  // longer trails for dreamy atmosphere
-  ctx.fillStyle = 'rgba(6,6,15,0.11)';
+  ctx.fillStyle = 'rgba(6,6,15,0.13)';
   ctx.fillRect(0, 0, W, H);
 
+  drawSky();
+  drawGrid();
+  drawHorizon();
   drawParticles();
-  drawRings();
+  drawWelcomeRipples();
   drawBirths();
   drawBursts();
 
-  Object.values(nodes).forEach(n => {
-    if (n.tx !== undefined) { n.x = lerp(n.x, n.tx, 0.032); n.y = lerp(n.y, n.ty, 0.032); }
+  // draw far-to-near for correct depth ordering
+  const nodeList = Object.values(nodes);
+  nodeList.sort((a, b) => (b.wz || 0) - (a.wz || 0));
+  nodeList.forEach(n => {
+    if (n.twx !== undefined) {
+      n.wx = lerp(n.wx, n.twx, 0.032);
+      n.wy = lerp(n.wy, n.twy, 0.032);
+      n.wz = lerp(n.wz, n.twz, 0.032);
+    }
     n.b = lerp(n.b, n.tb || 0, 0.04);
     drawNode(n);
   });
@@ -833,24 +887,35 @@ function animate() {
   drawWanderers();
   drawSelf();
   drawVignette();   // fog over everything
-  drawCursor();     // cursor on top
 }
 
 function drawNode(n) {
   const b = n.b;
   if (b < 0.02) return;
 
-  // organic positional drift — amplitude scales with brightness (near = alive, beyond = still)
-  const driftScale = b * 1.6;
-  const dx = n.driftAmp * driftScale * Math.sin(clock * n.driftFreq + n.driftPhase);
-  const dy = n.driftAmp * driftScale * Math.cos(clock * n.driftFreq * 0.71 + n.driftPhase + 1.1);
-  n.rx = n.x + dx; // store rendered pos for hit testing
-  n.ry = n.y + dy;
+  // organic drift in world space — amplitude scales with brightness
+  const ds = b * 1.4;
+  const dwx = n.driftAmpX * ds * Math.sin(clock * n.driftFreq + n.driftPhase);
+  const dwy = n.driftAmpY * ds * Math.cos(clock * n.driftFreq * 0.71 + n.driftPhase + 1.1);
+  const dwz = n.driftAmpX * 0.4 * ds * Math.sin(clock * n.driftFreq * 0.53 + n.driftPhase + 2.3);
+
+  const proj = project(n.wx + dwx, n.wy + dwy, n.wz + dwz);
+  if (!proj) return;
+  n.rx = proj.sx;
+  n.ry = proj.sy;
+  n.projScale = proj.ps;
+
+  // spawn birth ripple after first successful projection
+  if (n.pendingBirth) {
+    n.pendingBirth = false;
+    const [cr, cg, cb] = KIND_COLOR[n.birthKind] || [140, 140, 190];
+    births.push({ wx: n.wx, wy: n.wy, wz: n.wz, t: 0, r: cr, g: cg, b: cb });
+  }
 
   const [r, g, bl] = KIND_COLOR[n.kind] || [140, 140, 190];
   const isHovered  = hoveredNode === n;
   const pulse  = 1 + (isHovered ? 0.3 : 0.10) * Math.sin(clock * 1.4 + labelAngle(n.label));
-  const radius = (2 + b * 5) * pulse * (isHovered ? 1.4 : 1);
+  const radius = (3 + b * 6) * proj.ps * pulse * (isHovered ? 1.4 : 1);
 
   let urgency = 0;
   if (n.expiresAt) {
@@ -880,11 +945,12 @@ function drawNode(n) {
   ctx.fill();
 
   // label reveals gradually as you approach — distant entities are anonymous dots
-  if (isHovered || b > 0.48) {
-    const alpha = isHovered ? 0.88 : Math.min(0.75, (b - 0.48) * 3.2);
+  if (isHovered || b > 0.35) {
+    const alpha = isHovered ? 0.90 : Math.min(0.78, (b - 0.35) * 2.8);
+    const fs = Math.max(8, Math.round((isHovered ? 12 : 8 + b * 4) * Math.min(1.3, proj.ps)));
     ctx.fillStyle = `rgba(${r},${g},${bl},${alpha})`;
-    ctx.font = `${Math.round(isHovered ? 11 : 8 + b * 3)}px "SF Mono",monospace`;
-    ctx.fillText(n.label, n.rx + radius + 5, n.ry + 4);
+    ctx.font = `${fs}px "SF Mono",monospace`;
+    ctx.fillText(n.label, n.rx + radius + 4, n.ry + 4);
   }
 
   // most recent message floating near entity (near zone only)
@@ -916,22 +982,22 @@ function drawNode(n) {
   }
 }
 
-// birth ripple — expanding ring when entity enters the field
+// birth ripple — expanding ring projected in 3D
 function drawBirths() {
   for (let i = births.length - 1; i >= 0; i--) {
     const b = births[i];
     b.t += 0.016;
     const p = b.t / 2.2;
     if (p > 1) { births.splice(i, 1); continue; }
-    const eased = 1 - (1 - p) * (1 - p); // ease-out
-    const radius = eased * 90;
+    const proj = project(b.wx, b.wy, b.wz);
+    if (!proj) continue;
+    const eased = 1 - (1 - p) * (1 - p);
+    const radius = eased * 75 * proj.ps;
     const alpha  = (1 - p) * 0.55;
     ctx.strokeStyle = `rgba(${b.r},${b.g},${b.b},${alpha})`;
     ctx.lineWidth = 1.2;
     ctx.setLineDash([]);
-    ctx.beginPath();
-    ctx.arc(b.x, b.y, radius, 0, Math.PI * 2);
-    ctx.stroke();
+    ctx.beginPath(); ctx.arc(proj.sx, proj.sy, radius, 0, Math.PI * 2); ctx.stroke();
   }
 }
 
@@ -941,54 +1007,98 @@ function drawBursts() {
     b.t += 0.016;
     const p = b.t / 1.0;
     if (p > 1) { bursts.splice(i, 1); continue; }
+    const proj = project(b.wx, b.wy, b.wz);
+    if (!proj) continue;
     for (let ring = 0; ring < 3; ring++) {
       const rp = Math.min(1, p + ring * 0.18);
-      const radius = rp * 100;
-      const alpha = (1 - rp) * 0.65 / (ring + 1);
+      const radius = rp * 90 * proj.ps;
+      const alpha  = (1 - rp) * 0.65 / (ring + 1);
       ctx.strokeStyle = `rgba(${b.r},${b.g},${b.b},${alpha})`;
       ctx.lineWidth = 1.5 - ring * 0.4;
       ctx.setLineDash([]);
-      ctx.beginPath();
-      ctx.arc(b.x, b.y, radius, 0, Math.PI * 2);
-      ctx.stroke();
+      ctx.beginPath(); ctx.arc(proj.sx, proj.sy, radius, 0, Math.PI * 2); ctx.stroke();
     }
   }
 }
 
 function drawSelf() {
-  const pulse = 1 + 0.18 * Math.sin(clock * 2.2);
-  const s = 9 * pulse;
-  const gr = ctx.createRadialGradient(selfX, selfY, 0, selfX, selfY, 28 * pulse);
-  gr.addColorStop(0,   'rgba(212,175,55,0.7)');
-  gr.addColorStop(0.3, 'rgba(212,175,55,0.12)');
+  // viewer crosshair — fixed at ground level near camera
+  const sx = cx + camLookX * 0.18;
+  const sy = H * 0.78;
+  const pulse = 0.14 * Math.sin(clock * 2.2);
+  const r = 8 + pulse * 4;
+  const gr = ctx.createRadialGradient(sx, sy, 0, sx, sy, 38);
+  gr.addColorStop(0,   'rgba(212,175,55,0.38)');
+  gr.addColorStop(0.4, 'rgba(212,175,55,0.06)');
   gr.addColorStop(1,   'rgba(0,0,0,0)');
   ctx.fillStyle = gr;
-  ctx.beginPath();
-  ctx.arc(selfX, selfY, 28 * pulse, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = `rgba(212,175,55,${0.5 + 0.3 * Math.sin(clock * 2.2)})`;
+  ctx.beginPath(); ctx.arc(sx, sy, 38, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = `rgba(212,175,55,${0.42 + pulse * 2.2})`;
   ctx.lineWidth = 1;
+  ctx.setLineDash([]);
   ctx.beginPath();
-  ctx.moveTo(selfX - s, selfY); ctx.lineTo(selfX + s, selfY);
-  ctx.moveTo(selfX, selfY - s); ctx.lineTo(selfX, selfY + s);
+  ctx.moveTo(sx - r, sy); ctx.lineTo(sx + r, sy);
+  ctx.moveTo(sx, sy - r); ctx.lineTo(sx, sy + r);
   ctx.stroke();
-  ctx.fillStyle = 'rgba(212,175,55,1)';
-  ctx.beginPath();
-  ctx.arc(selfX, selfY, 2.5, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.fillStyle = 'rgba(212,175,55,0.9)';
+  ctx.beginPath(); ctx.arc(sx, sy, 2, 0, Math.PI * 2); ctx.fill();
 }
 
-function drawRings() {
-  [[0.18, 0.05], [0.42, 0.03]].forEach(([frac, alpha]) => {
-    const r = Math.min(W, H) * frac;
-    ctx.strokeStyle = `rgba(80,80,140,${alpha})`;
-    ctx.lineWidth = 1;
-    ctx.setLineDash([2, 10]);
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.setLineDash([]);
-  });
+function drawSky() {
+  // faint atmospheric gradient above horizon
+  const hy = H * HORIZON_FRAC;
+  const gr = ctx.createLinearGradient(0, 0, 0, hy);
+  gr.addColorStop(0, 'rgba(4,4,22,0.6)');
+  gr.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = gr;
+  ctx.fillRect(0, 0, W, hy);
+}
+
+function drawGrid() {
+  const GS = 90;       // world-space grid spacing
+  const EX = 1100;     // x extent
+  const EZ = 1200;     // z extent (depth)
+  ctx.setLineDash([]);
+
+  // depth lines (recede to horizon)
+  for (let wx = -EX; wx <= EX; wx += GS) {
+    const near = project(wx, 0, 0);
+    const far  = project(wx, 0, EZ);
+    if (!near || !far) continue;
+    if (near.sy < H * HORIZON_FRAC) continue;
+    const fade = 1 - Math.abs(wx) / (EX * 1.1);
+    ctx.strokeStyle = `rgba(38,52,130,${fade * 0.28})`;
+    ctx.lineWidth = 0.5;
+    ctx.beginPath(); ctx.moveTo(near.sx, near.sy); ctx.lineTo(far.sx, far.sy); ctx.stroke();
+  }
+
+  // cross lines (horizontal bands receding)
+  for (let wz = 0; wz < EZ; wz += GS) {
+    const left  = project(-EX, 0, wz);
+    const right = project( EX, 0, wz);
+    if (!left || !right) continue;
+    if (left.sy < H * HORIZON_FRAC - 2) continue;
+    const fade = 1 - wz / EZ;
+    ctx.strokeStyle = `rgba(38,52,130,${fade * 0.22})`;
+    ctx.lineWidth = 0.5;
+    ctx.beginPath(); ctx.moveTo(left.sx, left.sy); ctx.lineTo(right.sx, right.sy); ctx.stroke();
+  }
+}
+
+function drawHorizon() {
+  const hy = H * HORIZON_FRAC;
+  // glow band at horizon
+  const gr = ctx.createLinearGradient(0, hy - 18, 0, hy + 18);
+  gr.addColorStop(0,   'rgba(0,0,0,0)');
+  gr.addColorStop(0.5, 'rgba(50,70,200,0.09)');
+  gr.addColorStop(1,   'rgba(0,0,0,0)');
+  ctx.fillStyle = gr;
+  ctx.fillRect(0, hy - 18, W, 36);
+  // hard horizon line
+  ctx.strokeStyle = 'rgba(55,75,190,0.18)';
+  ctx.lineWidth = 0.6;
+  ctx.setLineDash([]);
+  ctx.beginPath(); ctx.moveTo(0, hy); ctx.lineTo(W, hy); ctx.stroke();
 }
 
 // --- wanderers ---
@@ -1045,6 +1155,28 @@ function drawWanderers() {
 // --- entry & interest ---
 let interest = sessionStorage.getItem('gp_interest') || '';
 
+// welcome ripple burst on entry
+const welcomeRipples = [];
+function spawnWelcomeRipples() {
+  for (let i = 0; i < 4; i++) {
+    welcomeRipples.push({ t: i * 0.18, maxR: Math.min(W, H) * (0.22 + i * 0.14) });
+  }
+}
+function drawWelcomeRipples() {
+  const hy = H * HORIZON_FRAC;
+  for (let i = welcomeRipples.length - 1; i >= 0; i--) {
+    const rip = welcomeRipples[i];
+    rip.t += 0.012;
+    if (rip.t >= 1) { welcomeRipples.splice(i, 1); continue; }
+    const r = rip.maxR * rip.t;
+    const a = (1 - rip.t) * 0.18;
+    ctx.strokeStyle = `rgba(200,168,64,${a})`;
+    ctx.lineWidth = 0.8;
+    ctx.setLineDash([]);
+    ctx.beginPath(); ctx.arc(cx, hy, r, 0, Math.PI * 2); ctx.stroke();
+  }
+}
+
 function enterSpace(text) {
   interest = text.trim() || 'curiosity exploration wandering';
   sessionStorage.setItem('gp_interest', interest);
@@ -1055,7 +1187,9 @@ function enterSpace(text) {
   }
   const el = document.getElementById('entry');
   el.classList.add('hidden');
-  setTimeout(() => el.style.display = 'none', 900);
+  setTimeout(() => el.style.display = 'none', 1200);
+  // welcome ripples
+  spawnWelcomeRipples();
   // hint fades out after 6s
   setTimeout(() => document.getElementById('hint').classList.add('hidden'), 6000);
   startPolling();
@@ -1081,7 +1215,7 @@ async function fetchEntities() {
     prevEntityLabels.forEach(label => {
       if (!newLabels.has(label) && nodes[label] && nodes[label].b > 0.1) {
         const [cr, cg, cb] = KIND_COLOR[nodes[label].kind] || [140, 140, 190];
-        bursts.push({ x: nodes[label].rx || nodes[label].x, y: nodes[label].ry || nodes[label].y, t: 0, r: cr, g: cg, b: cb });
+        bursts.push({ wx: nodes[label].wx, wy: nodes[label].wy, wz: nodes[label].wz, t: 0, r: cr, g: cg, b: cb });
       }
     });
     prevEntityLabels = newLabels;
@@ -1102,9 +1236,10 @@ async function fetchField() {
     const nameParam = authorName ? '&name=' + encodeURIComponent(authorName) : '';
     const f   = await fetch('/field?interest=' + enc + nameParam).then(r => r.json());
     updateNodes(f, allEntities);
-    updateSelfGravity(f);
+    // updateCamera() is called each frame in animate()
     updateMessages(f);
-    document.getElementById('position').textContent       = f.position || '—';
+    const pos = f.position || '—';
+    document.getElementById('position').textContent = pos.length > 48 ? pos.slice(0, 46) + '…' : pos;
     document.getElementById('presence-count').textContent = f.presence || 0;
     document.getElementById('conn').textContent           = 'live';
     const drift = f.drift && f.drift.length ? '› drifting toward ' + f.drift[0].toward : '';

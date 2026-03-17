@@ -6,35 +6,76 @@
 
 body {
   width: 320px;
-  min-height: 200px;
+  min-height: 160px;
   background: #0a0a0f;
   color: #c8c8d8;
   font-family: 'SF Mono', 'Fira Code', monospace;
   font-size: 12px;
 }
 
-#header {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  padding: 10px 14px 6px;
-  border-bottom: 1px solid #1e1e2e;
+/* ── 第一層: presence — 空間に人がいる ── */
+
+#arrival {
+  text-align: center;
+  padding: 18px 14px 12px;
+  border-bottom: 1px solid #141420;
 }
 
-#position {
-  font-size: 13px;
-  color: #e0e0f0;
-  font-weight: bold;
-  letter-spacing: 0.03em;
+#presence-count {
+  font-size: 32px;
+  color: #7070c0;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  transition: color 0.6s;
 }
 
-#density {
-  font-size: 10px;
-  color: #555570;
+#presence-label {
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: #333348;
+  margin-top: 4px;
 }
+
+/* ── 第二層: voices — 空間に残された声 ── */
+
+#voices {
+  padding: 8px 14px;
+  border-bottom: 1px solid #111118;
+}
+
+#voices.hidden {
+  display: none;
+}
+
+#voices-list {
+  list-style: none;
+}
+
+#voices-list li {
+  padding: 2px 0;
+}
+
+.voice-text {
+  font-size: 11px;
+  color: #50505a;
+  font-style: italic;
+  line-height: 1.5;
+}
+
+/* ── 第三〜五層: field (horizon→near→drift) ── */
 
 #field {
   padding: 8px 14px;
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+
+#field.layer-hidden {
+  opacity: 0;
+  transform: translateY(6px);
+  pointer-events: none;
 }
 
 section {
@@ -53,7 +94,32 @@ ul {
   list-style: none;
 }
 
-/* near: 明るく、距離バーあり */
+/* horizon: 薄く、遠い */
+
+#horizon-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  color: #555568;
+}
+
+#horizon-list .dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #333350;
+  flex-shrink: 0;
+}
+
+#divider {
+  height: 1px;
+  background: #1a1a28;
+  margin: 6px 0;
+}
+
+/* near: 明るく、近い */
+
 #near-list li {
   display: flex;
   align-items: center;
@@ -85,30 +151,8 @@ ul {
   border-radius: 1px;
 }
 
-/* horizon: 薄く */
-#horizon-list li {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 0;
-  color: #555568;
-}
-
-#horizon-list .dot {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: #333350;
-  flex-shrink: 0;
-}
-
-#divider {
-  height: 1px;
-  background: #1a1a28;
-  margin: 6px 0;
-}
-
 /* drift */
+
 #drift-list li {
   display: flex;
   align-items: center;
@@ -122,13 +166,36 @@ ul {
   font-size: 11px;
 }
 
+/* ── position: 最後に浮かび上がる ── */
+
 #footer {
   display: flex;
   justify-content: space-between;
+  align-items: baseline;
   padding: 6px 14px 10px;
-  border-top: 1px solid #1e1e2e;
-  color: #333348;
+  border-top: 1px solid #111118;
+}
+
+#position {
   font-size: 10px;
+  color: #2a2a40;
+  letter-spacing: 0.06em;
+  opacity: 0;
+  transition: opacity 0.8s ease, color 1.2s ease;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#position.revealed {
+  opacity: 1;
+  color: #555570;
+}
+
+#status {
+  font-size: 10px;
+  color: #333348;
 }
 
 #status.connected { color: #446644; }
@@ -137,4 +204,11 @@ ul {
 .empty {
   color: #2a2a3a;
   font-style: italic;
+}
+
+.label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

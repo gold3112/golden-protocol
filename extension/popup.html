@@ -5,32 +5,44 @@
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <div id="header">
-    <span id="position">—</span>
-    <span id="density"></span>
+
+  <!-- 第一層: 気配 — 最初に知覚するもの -->
+  <div id="arrival">
+    <div id="presence-count">—</div>
+    <div id="presence-label">present</div>
   </div>
 
-  <div id="field">
-    <section id="near-section">
-      <h2>near</h2>
-      <ul id="near-list"></ul>
-    </section>
+  <!-- 第二層: 声 — 空間に痕跡があれば -->
+  <div id="voices" class="hidden">
+    <h2>voices</h2>
+    <ul id="voices-list"></ul>
+  </div>
 
-    <div id="divider"></div>
-
+  <!-- 第三層: horizon が先（奥行きは見えないものから始まる） -->
+  <div id="field" class="layer-hidden">
     <section id="horizon-section">
       <h2>horizon</h2>
       <ul id="horizon-list"></ul>
     </section>
 
+    <div id="divider"></div>
+
+    <!-- 第四層: near — horizonの後に解像する -->
+    <section id="near-section">
+      <h2>near</h2>
+      <ul id="near-list"></ul>
+    </section>
+
+    <!-- 第五層: drift -->
     <section id="drift-section">
       <h2>drift</h2>
       <ul id="drift-list"></ul>
     </section>
   </div>
 
+  <!-- 最後: position — 探索の末に発見されるもの、宣言されるものではない -->
   <div id="footer">
-    <span id="presence"></span>
+    <span id="position"></span>
     <span id="status">connecting…</span>
   </div>
 
