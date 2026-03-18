@@ -185,6 +185,9 @@ fn compute_field_state(state: &AppState, q: &FieldQuery) -> FieldState {
     let activity = state.activity.lock().unwrap();
 
     // Pass 1: グラフエンティティの距離計算
+    // activity の最大値を先に取得（正規化用）
+    let max_activity_count = activity.values().copied().max().unwrap_or(1) as f32;
+
     let mut scored: Vec<(ObservedEntity, f32, Option<Vec<f32>>)> = graph.graph
         .node_indices()
         .filter(|idx| {
@@ -194,25 +197,29 @@ fn compute_field_state(state: &AppState, q: &FieldQuery) -> FieldState {
         .map(|idx| {
             let entity = &graph.graph[idx];
 
+            // semantic: エンティティ埋め込み ↔ ユーザー関心
             let sem = entity.embedding.as_deref()
                 .map(|emb| semantic_dist(emb, &user_interest))
                 .unwrap_or(0.5);
 
-            let rel = identity.as_ref()
-                .map(|id| id.relational_dist(&entity.label))
-                .unwrap_or(1.0);
+            // relational: グラフ接続次数（エンティティの知識グラフ内の位置）
+            // 接続が多い = 空間の中心的存在 = 近い (cap=4)
+            let degree = graph.graph.edges(idx).count();
+            let rel = 1.0 - (degree as f32 / 4.0_f32).min(1.0);
 
+            // activity: 社会的シグナル — 似た関心を持つ人が訪れたか？
+            // activity_vec = 訪問者の関心ベクトルの重心
+            // user_interest との距離が近い = 同じような人が来ている = 近い
             let act = entity.activity_vec.as_deref()
-                .map(|av| {
-                    let u = vec![1.0 / av.len() as f32; av.len()];
-                    distance::activity_dist(av, &u)
-                })
+                .map(|av| distance::attention_dist(&user_interest, av))
                 .unwrap_or(0.5);
 
             let tmp = temporal_dist(entity, tau);
 
-            let att = entity.embedding.as_deref()
-                .map(|emb| distance::attention_dist(&user_interest, emb))
+            // attention: このユーザー個人の履歴（訪問経験）
+            // 未訪問 = 0.5（中立）、訪問済み = 経験に応じて近くなる
+            let att = identity.as_ref()
+                .map(|id| id.relational_dist(&entity.label))
                 .unwrap_or(0.5);
 
             let d = compute_distance(sem, rel, act, tmp, att, weights);

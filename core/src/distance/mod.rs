@@ -15,11 +15,11 @@ pub struct DistanceWeights {
 impl Default for DistanceWeights {
     fn default() -> Self {
         Self {
-            semantic:   0.25,
-            relational: 0.20,
-            activity:   0.20,
-            temporal:   0.15,
-            attention:  0.20,
+            semantic:   0.35,  // entity↔interest 意味距離（メイン）
+            relational: 0.10,  // グラフ接続度（エッジ少ない環境では影響を抑える）
+            activity:   0.25,  // 社会的シグナル（似た関心の人が来たか）
+            temporal:   0.15,  // 鮮度
+            attention:  0.15,  // 個人履歴（identity使用時のみ有効）
         }
     }
 }
