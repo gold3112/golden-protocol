@@ -343,11 +343,6 @@ async fn landing() -> Html<&'static str> {
     Html(ABOUT_HTML)
 }
 
-/// GET /space — 3D FPS探索体験
-async fn space_page() -> Html<&'static str> {
-    Html(LANDING_HTML)
-}
-
 static ABOUT_HTML: &str = r###"<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -489,8 +484,6 @@ canvas { display: block; width: 100%; height: 100%; }
     <div id="bottom-strip">
       <span id="info-counts">near — · horizon —</span>
       <span class="sep">|</span>
-      <a href="/space">3D space →</a>
-      <span class="sep">|</span>
       <a href="https://github.com/gold3112/golden-protocol" target="_blank">GitHub</a>
       <span class="sep">|</span>
       <span style="color:#282840">click any dot to explore</span>
@@ -534,18 +527,16 @@ function resize() {
 }
 const ro = new ResizeObserver(resize);
 ro.observe(document.getElementById('canvas-wrap'));
-resize();
+requestAnimationFrame(()=>{ resize(); fetchField(currentInterest); });
 
 function labelAngle(label) {
   let h = 5381;
   for (let i = 0; i < label.length; i++) h = (((h<<5)+h)+label.charCodeAt(i))>>>0;
   return (h%10000)/10000*Math.PI*2;
 }
-const KIND_COLOR = {
-  AI:[170,130,255], Stream:[70,170,255], Event:[255,150,70],
-  Data:[80,200,130], Human:[255,210,90], Service:[160,160,200],
-};
-function kc(kind) { return KIND_COLOR[kind]||[160,160,200]; }
+// components: [semantic, relational, activity, temporal, attention]
+const COMP_NAMES  = ['semantic','relational','activity','temporal','attention'];
+const COMP_COLORS = ['#a080e8','#50a8e8','#50c880','#e8a050','#a0a0e0'];
 
 let lastField    = null;
 let hoveredLabel = null;
@@ -624,7 +615,7 @@ function drawField(field) {
   sorted.forEach(e=>{
     const {x,y,angle} = entityPos(e);
     e._sx=x; e._sy=y;
-    const [cr,cg,cb] = kc(e.kind);
+    const [cr,cg,cb] = [160,160,200];
     const isHov = hoveredLabel === e.label;
     const isSel = selectedLabel === e.label;
     const isNear = e.zone==='near';
@@ -708,25 +699,17 @@ function openPanel(entity) {
   if(lastField) drawField(lastField);
 
   document.getElementById('panel-title').textContent = entity.label;
-  document.getElementById('panel-kind').textContent  = entity.kind||'';
+  document.getElementById('panel-kind').textContent  = `distance ${entity.distance ? entity.distance.toFixed(3) : '—'}`;
   document.getElementById('dist-total').textContent  = entity.distance ? entity.distance.toFixed(3) : '—';
 
-  // distance bars
+  // distance bars — components is array [semantic, relational, activity, temporal, attention]
   const bars = document.getElementById('dist-bars');
   bars.innerHTML='';
-  const comps = [
-    ['semantic',   entity.s_semantic,   '#a080e8'],
-    ['relational', entity.s_relational, '#50a8e8'],
-    ['activity',   entity.s_activity,   '#50c880'],
-    ['temporal',   entity.s_temporal,   '#e8a050'],
-    ['attention',  entity.s_attention,  '#a0a0e0'],
-  ];
-  comps.forEach(([name,val,color])=>{
-    if(val===undefined||val===null) return;
+  (entity.components||[]).forEach((val,i)=>{
     const pct = Math.round(val*100);
     bars.innerHTML+=`<div class="bar-row">
-      <span class="bar-label">${name}</span>
-      <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div>
+      <span class="bar-label">${COMP_NAMES[i]||i}</span>
+      <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${COMP_COLORS[i]}"></div></div>
       <span class="bar-val">${val.toFixed(2)}</span>
     </div>`;
   });
@@ -818,7 +801,6 @@ document.getElementById('interest-input').addEventListener('keydown',e=>{
   }
 });
 
-fetchField(currentInterest);
 </script>
 </body>
 </html>
@@ -3444,7 +3426,6 @@ async fn main() {
 
     let app = Router::new()
         .route("/",              get(landing))
-        .route("/space",         get(space_page))
         .route("/privacy-policy", get(privacy_policy))
         .route("/ambient.js",    get(ambient_js))
         .route("/field",         get(get_field))
