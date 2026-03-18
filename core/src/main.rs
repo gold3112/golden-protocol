@@ -348,7 +348,7 @@ async fn space_page() -> Html<&'static str> {
     Html(LANDING_HTML)
 }
 
-static ABOUT_HTML: &str = r##"<!DOCTYPE html>
+static ABOUT_HTML: &str = r###"<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -356,493 +356,464 @@ static ABOUT_HTML: &str = r##"<!DOCTYPE html>
 <title>Golden Protocol</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
-:root { --gold: #d4af37; --dim: #8888aa; --bg: #06060f; --panel: #0e0e1c; }
-body {
-  background: var(--bg); color: #c8c8e0;
-  font-family: "SF Mono", "Fira Code", monospace;
-  font-size: 13px; line-height: 1.7;
-  max-width: 860px; margin: 0 auto; padding: 40px 24px 80px;
-}
+:root { --gold: #d4af37; --dim: #555575; --bg: #06060f; --panel: #0c0c1a; --border: #181830; }
+body { background: var(--bg); color: #b8b8d0; font-family: "SF Mono","Fira Code",monospace; font-size: 13px; line-height: 1.6; }
 a { color: var(--gold); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
-/* ── header ── */
-#header { margin-bottom: 48px; }
-#header h1 { font-size: 22px; color: var(--gold); letter-spacing: 0.12em; font-weight: 400; margin-bottom: 8px; }
-#header .sub { color: var(--dim); font-size: 12px; }
-#header .tagline { font-size: 15px; color: #d0d0f0; margin: 12px 0 0; max-width: 520px; line-height: 1.5; }
+/* layout */
+#app { display: flex; height: 100vh; overflow: hidden; }
+#left  { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+#right { width: 320px; border-left: 1px solid var(--border); display: flex; flex-direction: column;
+         transform: translateX(100%); transition: transform 0.22s ease; }
+#right.open { transform: translateX(0); }
 
-/* ── field section ── */
-#field-section { margin-bottom: 56px; }
-#interest-row {
-  display: flex; gap: 8px; align-items: center; margin-bottom: 20px;
+/* top bar */
+#topbar {
+  padding: 14px 20px 12px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: baseline; gap: 16px; flex-shrink: 0;
 }
-#interest-row label { color: var(--dim); white-space: nowrap; }
+#topbar h1 { font-size: 13px; color: var(--gold); letter-spacing: 0.1em; font-weight: 400; }
+#topbar .sub { font-size: 10px; color: var(--dim); }
+#status-line { margin-left: auto; font-size: 10px; color: var(--dim); }
+
+/* interest bar */
+#interest-bar {
+  padding: 10px 20px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+}
+#interest-bar label { font-size: 10px; color: var(--dim); white-space: nowrap; }
 #interest-input {
-  flex: 1; background: transparent; border: none; border-bottom: 1px solid #303050;
-  color: #d0d0f0; font-family: inherit; font-size: 13px; padding: 4px 0;
-  outline: none; max-width: 360px;
+  flex: 1; background: transparent; border: none; border-bottom: 1px solid #282848;
+  color: #d0d0f0; font-family: inherit; font-size: 12px; padding: 2px 0; outline: none;
 }
 #interest-input:focus { border-color: var(--gold); }
 #interest-btn {
-  background: none; border: 1px solid #303050; color: var(--dim);
-  font-family: inherit; font-size: 11px; padding: 4px 12px; cursor: pointer;
-  letter-spacing: 0.06em;
+  background: none; border: 1px solid #282848; color: var(--dim);
+  font-family: inherit; font-size: 10px; padding: 3px 10px; cursor: pointer; white-space: nowrap;
 }
 #interest-btn:hover { border-color: var(--gold); color: var(--gold); }
 
-#field-wrap { position: relative; }
-canvas#field-canvas {
-  display: block; width: 100%; max-width: 700px;
-  height: 440px; background: var(--panel);
-  border: 1px solid #181830;
-}
-#field-status {
-  position: absolute; top: 12px; right: 14px;
-  font-size: 10px; color: var(--dim); letter-spacing: 0.06em;
-}
-#field-info {
-  margin-top: 10px; font-size: 11px; color: var(--dim);
-  display: flex; gap: 24px;
-}
-#tooltip {
-  position: fixed; display: none;
-  background: #12122a; border: 1px solid #303060;
-  padding: 10px 14px; font-size: 11px; color: #b0b0d0;
-  pointer-events: none; z-index: 100; max-width: 280px;
-  line-height: 1.8;
-}
+/* canvas */
+#canvas-wrap { flex: 1; position: relative; }
+canvas { display: block; width: 100%; height: 100%; }
 
-/* ── concept section ── */
-.section { margin-bottom: 48px; }
-.section h2 {
-  font-size: 11px; letter-spacing: 0.14em; color: var(--dim);
-  text-transform: uppercase; margin-bottom: 20px;
-  border-bottom: 1px solid #181830; padding-bottom: 8px;
+/* bottom strip */
+#bottom-strip {
+  padding: 6px 20px; border-top: 1px solid var(--border); flex-shrink: 0;
+  display: flex; gap: 20px; font-size: 10px; color: var(--dim);
+  align-items: center;
 }
-.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-bottom: 32px; }
-@media(max-width:600px){ .two-col { grid-template-columns: 1fr; } }
+#bottom-strip a { color: var(--dim); font-size: 10px; }
+#bottom-strip a:hover { color: var(--gold); }
+.sep { color: #282840; }
 
-.concept-box {
-  background: var(--panel); padding: 16px 18px;
-  border: 1px solid #181830; font-size: 12px;
+/* entity panel (right) */
+#panel-header {
+  padding: 14px 16px 10px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: flex-start; gap: 8px; flex-shrink: 0;
 }
-.concept-box .label { color: var(--dim); font-size: 10px; letter-spacing: 0.1em; margin-bottom: 8px; }
-.concept-box .value { color: #d0d0f0; }
-.concept-box .arrow { color: var(--gold); margin: 6px 0; }
-
-pre {
-  background: var(--panel); border: 1px solid #181830;
-  padding: 14px 18px; overflow-x: auto; font-size: 11px;
-  color: #a8a8c8; line-height: 1.6; margin-bottom: 12px;
+#panel-close {
+  margin-left: auto; background: none; border: none; color: var(--dim);
+  font-size: 16px; cursor: pointer; line-height: 1; padding: 0 2px;
 }
-pre .hl { color: var(--gold); }
-pre .dim { color: #505070; }
+#panel-close:hover { color: #d0d0f0; }
+#panel-title { font-size: 12px; color: #d0d0f0; line-height: 1.4; flex: 1; }
+#panel-kind  { font-size: 10px; color: var(--dim); margin-top: 2px; }
 
-.dist-formula {
-  background: var(--panel); border: 1px solid #181830;
-  padding: 18px 20px; margin-bottom: 0;
+#panel-dist {
+  padding: 12px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0;
 }
-.dist-row { display: flex; gap: 12px; margin-bottom: 4px; align-items: baseline; }
-.dist-weight { color: var(--gold); width: 36px; text-align: right; }
-.dist-name { color: #d0d0f0; width: 120px; }
-.dist-desc { color: var(--dim); }
+#panel-dist .dist-total { font-size: 18px; color: var(--gold); margin-bottom: 8px; }
+.bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 10px; }
+.bar-label { width: 64px; color: var(--dim); }
+.bar-track { flex: 1; height: 3px; background: #181830; border-radius: 2px; }
+.bar-fill  { height: 100%; border-radius: 2px; background: var(--gold); }
+.bar-val   { width: 28px; text-align: right; color: #808098; }
 
-/* ── zone legend ── */
-.zone-legend { display: flex; gap: 20px; font-size: 11px; margin-bottom: 20px; }
-.zone-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; vertical-align: middle; }
-.near-dot { background: var(--gold); }
-.horizon-dot { background: #4444aa; }
-
-/* ── footer ── */
-#footer {
-  margin-top: 56px; padding-top: 20px; border-top: 1px solid #181830;
-  display: flex; gap: 24px; flex-wrap: wrap; font-size: 12px;
+#panel-search-link {
+  display: block; padding: 8px 16px; font-size: 10px; color: var(--dim);
+  border-bottom: 1px solid var(--border); flex-shrink: 0;
 }
-#footer a { color: var(--dim); }
-#footer a:hover { color: var(--gold); }
+#panel-search-link:hover { color: var(--gold); }
+
+#panel-messages { flex: 1; overflow-y: auto; padding: 12px 16px; }
+.msg-item { margin-bottom: 12px; font-size: 11px; line-height: 1.5; }
+.msg-author { color: var(--dim); font-size: 10px; margin-bottom: 2px; }
+.msg-text   { color: #c0c0d8; }
+#panel-empty { color: var(--dim); font-size: 11px; font-style: italic; }
+
+#panel-compose {
+  padding: 10px 12px; border-top: 1px solid var(--border); flex-shrink: 0;
+  display: flex; gap: 8px; align-items: center;
+}
+#msg-input {
+  flex: 1; background: transparent; border: none; border-bottom: 1px solid #282848;
+  color: #d0d0f0; font-family: inherit; font-size: 11px; padding: 3px 0; outline: none;
+}
+#msg-input:focus { border-color: var(--gold); }
+#msg-send {
+  background: none; border: none; color: var(--dim); font-family: inherit;
+  font-size: 14px; cursor: pointer; padding: 0 4px;
+}
+#msg-send:hover { color: var(--gold); }
+
+/* info sidebar for concept */
+#explain {
+  padding: 16px 20px; font-size: 11px; color: var(--dim); line-height: 1.7;
+  border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+#explain .row { display: flex; gap: 6px; margin-bottom: 3px; }
+#explain .tag { color: #404060; width: 80px; flex-shrink: 0; }
+#explain strong { color: #9090b0; font-weight: 400; }
 </style>
 </head>
 <body>
+<div id="app">
 
-<div id="header">
-  <h1>GOLDEN PROTOCOL</h1>
-  <div class="sub">space.gold3112.online</div>
-  <div class="tagline">
-    A server that returns the topology of semantic space around you — not pages, not search results.
-    What's near, what's on the horizon, and how far.
+  <!-- left: field -->
+  <div id="left">
+    <div id="topbar">
+      <h1>GOLDEN PROTOCOL</h1>
+      <span class="sub">space.gold3112.online</span>
+      <span id="status-line">—</span>
+    </div>
+    <div id="interest-bar">
+      <label>interest</label>
+      <input id="interest-input" type="text" value="programming" autocomplete="off" spellcheck="false" maxlength="120">
+      <button id="interest-btn">→</button>
+    </div>
+    <div id="canvas-wrap">
+      <canvas id="field-canvas"></canvas>
+    </div>
+    <div id="bottom-strip">
+      <span id="info-counts">near — · horizon —</span>
+      <span class="sep">|</span>
+      <a href="/space">3D space →</a>
+      <span class="sep">|</span>
+      <a href="https://github.com/gold3112/golden-protocol" target="_blank">GitHub</a>
+      <span class="sep">|</span>
+      <span style="color:#282840">click any dot to explore</span>
+    </div>
   </div>
-</div>
 
-<!-- ── live 2D field ── -->
-<div id="field-section">
-  <div id="interest-row">
-    <label>interest →</label>
-    <input id="interest-input" type="text" value="programming" autocomplete="off" spellcheck="false" maxlength="120">
-    <button id="interest-btn">update →</button>
-  </div>
-  <div id="field-wrap">
-    <canvas id="field-canvas"></canvas>
-    <div id="field-status">connecting...</div>
-  </div>
-  <div id="field-info">
-    <span id="info-near">near: —</span>
-    <span id="info-horizon">horizon: —</span>
-    <span id="info-presence">— here now</span>
-    <span id="info-position"></span>
-  </div>
-</div>
-<div id="tooltip"></div>
-
-<!-- ── what it is ── -->
-<div class="section">
-  <h2>what this is</h2>
-  <div class="two-col">
-    <div class="concept-box">
-      <div class="label">TRADITIONAL SERVER</div>
-      <div class="value">GET /article/123</div>
-      <div class="arrow">↓</div>
-      <div class="value">returns that article</div>
-      <div style="margin-top:10px;color:#505070;font-size:11px">
-        you navigate by address.<br>
-        the server doesn't know you exist.
+  <!-- right: entity panel -->
+  <div id="right">
+    <div id="panel-header">
+      <div>
+        <div id="panel-title">—</div>
+        <div id="panel-kind"></div>
       </div>
+      <button id="panel-close">×</button>
     </div>
-    <div class="concept-box">
-      <div class="label">THIS SERVER</div>
-      <div class="value">GET /field?interest=rust</div>
-      <div class="arrow">↓</div>
-      <div class="value">returns what's near "rust"</div>
-      <div style="margin-top:10px;color:#a0a0c0;font-size:11px">
-        you announce your presence.<br>
-        the space responds to you.
-      </div>
+    <div id="panel-dist">
+      <div class="dist-total" id="dist-total">—</div>
+      <div id="dist-bars"></div>
     </div>
-  </div>
-  <p style="color:#9090b0;font-size:12px;line-height:1.7">
-    The response is not content at an address. It's a <strong style="color:#d0d0f0">field state</strong>:
-    a list of entities with their distances from you, split into zones.
-    The same server, the same endpoint — but the topology shifts depending on who's asking.
-  </p>
-</div>
-
-<!-- ── try it ── -->
-<div class="section">
-  <h2>try it</h2>
-<pre>curl "<span class="hl">https://space.gold3112.online/field?interest=programming&amp;format=text</span>"</pre>
-<pre><span class="hl">━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span>
-  GOLDEN PROTOCOL  ·  field state
-<span class="hl">━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span>
-
-  position  ·  The two worlds of programming
-  presence  ·  128
-  density   ·  0.59
-
-  <span class="hl">NEAR</span>
-  ─────────────────────────────────────────
-  ● The two worlds of programming     0.55  <span class="dim">s:0.31 r:1.00 a:0.99 t:0.04 u:0.31</span>
-  ● Software development as a wic…    0.56  <span class="dim">s:0.34 r:1.00 a:0.99 t:0.04 u:0.34</span>
-  ● This Week in Rust 641             0.59  <span class="dim">s:0.42 r:1.00 a:0.99 t:0.04 u:0.42</span>
-
-  <span class="dim">HORIZON</span>
-  ─────────────────────────────────────────
-  · Even Faster asin()…               0.60
-  · When perfection is table stakes   0.61
-  <span class="dim">… and 71 more beyond</span>
-<span class="hl">━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span>
-  s=semantic  r=relational  a=activity  t=temporal  u=attention</pre>
-</div>
-
-<!-- ── distance ── -->
-<div class="section">
-  <h2>distance</h2>
-  <p style="color:#9090b0;font-size:12px;margin-bottom:16px">
-    Each entity's distance from you is a weighted sum of five components.
-    Four measure objective properties of the entity; one is your personal attention vector.
-  </p>
-  <div class="dist-formula">
-    <div class="dist-row">
-      <span class="dist-weight">0.25</span>
-      <span class="dist-name">semantic</span>
-      <span class="dist-desc">embedding cosine distance (BAAI/bge-small-en, 384-dim)</span>
-    </div>
-    <div class="dist-row">
-      <span class="dist-weight">0.20</span>
-      <span class="dist-name">relational</span>
-      <span class="dist-desc">graph distance (shared tags, co-occurrence)</span>
-    </div>
-    <div class="dist-row">
-      <span class="dist-weight">0.20</span>
-      <span class="dist-name">activity</span>
-      <span class="dist-desc">how active the entity is right now</span>
-    </div>
-    <div class="dist-row">
-      <span class="dist-weight">0.15</span>
-      <span class="dist-name">temporal</span>
-      <span class="dist-desc">recency — how long since last contact</span>
-    </div>
-    <div class="dist-row" style="margin-top:8px;padding-top:8px;border-top:1px solid #181830">
-      <span class="dist-weight" style="color:#a0a0f0">0.20</span>
-      <span class="dist-name" style="color:#a0a0f0">attention</span>
-      <span class="dist-desc">distance from <em>your</em> interest vector (subjective)</span>
+    <a id="panel-search-link" href="#" target="_blank">search →</a>
+    <div id="panel-messages"><div id="panel-empty">no messages yet</div></div>
+    <div id="panel-compose">
+      <input id="msg-input" type="text" placeholder="say something..." maxlength="280" autocomplete="off">
+      <button id="msg-send">→</button>
     </div>
   </div>
-  <p style="margin-top:10px;font-size:11px;color:#505070">
-    near / horizon boundaries are percentile-based — they shift with the density of the current space.
-  </p>
-</div>
 
-<!-- ── zones ── -->
-<div class="section">
-  <h2>zones</h2>
-  <div class="zone-legend">
-    <span><span class="zone-dot near-dot"></span>near — within reach</span>
-    <span><span class="zone-dot horizon-dot"></span>horizon — visible but far</span>
-    <span style="color:#303050">· beyond — not in this field</span>
-  </div>
-  <p style="color:#9090b0;font-size:12px;line-height:1.7">
-    Entities drift between zones as the space evolves. When multiple users converge near the same
-    entity, a <em>convergence event</em> fires. New entities entering the field trigger
-    <em>emergence</em>. Wanderers passing close enough generate <em>encounters</em>.
-    The field is live — it changes as you and others exist in it.
-  </p>
-</div>
-
-<!-- ── stack ── -->
-<div class="section">
-  <h2>stack</h2>
-  <pre><span class="hl">server</span>     Rust + Axum
-<span class="hl">embeddings</span> fastembed (BAAI/bge-small-en-v1.5, local, no API key)
-<span class="hl">db</span>         SQLite WAL
-<span class="hl">entities</span>   HackerNews · Zenn · arxiv · Lobsters  (RSS, hourly)
-<span class="hl">transport</span>  Cloudflare Tunnel → space.gold3112.online
-<span class="hl">streaming</span>  SSE — field state pushed every 2s while connected</pre>
-</div>
-
-<div id="footer">
-  <a href="/space">→ walk through the space (3D)</a>
-  <a href="https://github.com/gold3112/golden-protocol" target="_blank">GitHub</a>
-  <a href="https://zenn.dev" target="_blank">Zenn article</a>
-  <span style="color:#303050">run your own node: GOLDEN_NODE_URL=... GOLDEN_BOOTSTRAP=https://space.gold3112.online ./golden_core</span>
 </div>
 
 <script>
 const canvas = document.getElementById('field-canvas');
 const ctx    = canvas.getContext('2d');
-const tooltip = document.getElementById('tooltip');
 let W, H, cx, cy;
 
 function resize() {
-  const rect = canvas.getBoundingClientRect();
-  W = canvas.width  = rect.width;
-  H = canvas.height = rect.height;
+  const wrap = document.getElementById('canvas-wrap');
+  W = canvas.width  = wrap.clientWidth;
+  H = canvas.height = wrap.clientHeight;
   cx = W / 2; cy = H / 2;
+  if (lastField) drawField(lastField);
 }
-window.addEventListener('resize', () => { resize(); if (lastField) drawField(lastField); });
+const ro = new ResizeObserver(resize);
+ro.observe(document.getElementById('canvas-wrap'));
 resize();
-
-const NEAR_R    = Math.min(W, H) * 0.28;
-const HORIZ_R   = Math.min(W, H) * 0.46;
-
-function radii() {
-  const s = Math.min(W, H);
-  return { near: s * 0.27, horiz: s * 0.45 };
-}
 
 function labelAngle(label) {
   let h = 5381;
-  for (let i = 0; i < label.length; i++) h = (((h << 5) + h) + label.charCodeAt(i)) >>> 0;
-  return (h % 10000) / 10000 * Math.PI * 2;
+  for (let i = 0; i < label.length; i++) h = (((h<<5)+h)+label.charCodeAt(i))>>>0;
+  return (h%10000)/10000*Math.PI*2;
 }
-
 const KIND_COLOR = {
-  AI:      [170,130,255], Stream: [70,170,255],
-  Event:   [255,150,70],  Data:   [80,200,130],
-  Human:   [255,210,90],  Service:[160,160,200],
+  AI:[170,130,255], Stream:[70,170,255], Event:[255,150,70],
+  Data:[80,200,130], Human:[255,210,90], Service:[160,160,200],
 };
-function kindColor(kind) { return KIND_COLOR[kind] || [160,160,200]; }
+function kc(kind) { return KIND_COLOR[kind]||[160,160,200]; }
 
-let lastField = null;
-let hoveredEntity = null;
+let lastField    = null;
+let hoveredLabel = null;
+let selectedLabel = null;
+let allEntities  = [];  // {label, zone, distance, kind, _sx, _sy, ...}
+
+function entityPos(e) {
+  const s = Math.min(W, H);
+  const NR = s * 0.26, HR = s * 0.43;
+  const angle = labelAngle(e.label);
+  let r;
+  if (e.zone === 'near') {
+    r = NR * 0.15 + e.distance * NR * 1.6;
+    r = Math.min(r, NR * 0.93);
+  } else {
+    r = NR + 12 + (e.distance - 0.5) * (HR - NR) * 1.6;
+    r = Math.max(NR + 8, Math.min(r, HR * 0.95));
+  }
+  return { x: cx + Math.cos(angle)*r, y: cy + Math.sin(angle)*r,
+           angle, NR, HR, r };
+}
 
 function drawField(field) {
   lastField = field;
-  const { near: NR, horiz: HR } = radii();
-  ctx.clearRect(0, 0, W, H);
-
-  // background
-  ctx.fillStyle = '#0e0e1c';
-  ctx.fillRect(0, 0, W, H);
-
-  // zone rings
-  [[NR, 'rgba(212,175,55,0.08)', 'rgba(212,175,55,0.18)'],
-   [HR, 'rgba(80,80,160,0.06)',  'rgba(80,80,160,0.14)']].forEach(([r, fill, stroke]) => {
-    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2);
-    ctx.fillStyle = fill; ctx.fill();
-    ctx.strokeStyle = stroke; ctx.lineWidth = 1;
-    ctx.setLineDash([3,5]); ctx.stroke(); ctx.setLineDash([]);
-  });
-
-  // zone labels
-  ctx.font = '9px "SF Mono",monospace';
-  ctx.fillStyle = 'rgba(212,175,55,0.35)';
-  ctx.fillText('near', cx + NR - 30, cy - 7);
-  ctx.fillStyle = 'rgba(80,80,160,0.5)';
-  ctx.fillText('horizon', cx + HR - 48, cy - 7);
-
-  // draw entities
-  const all = [
-    ...(field.near    || []).map(e => ({...e, zone:'near'})),
-    ...(field.horizon || []).map(e => ({...e, zone:'horizon'})),
+  allEntities = [
+    ...(field.near||[]).map(e=>({...e,zone:'near'})),
+    ...(field.horizon||[]).map(e=>({...e,zone:'horizon'})),
   ];
 
-  // lines from center to near entities first
-  (field.near || []).forEach(e => {
-    const angle = labelAngle(e.label);
-    const r = NR * 0.3 + e.distance * NR * 1.6;
-    const ex = cx + Math.cos(angle) * Math.min(r, NR * 0.92);
-    const ey = cy + Math.sin(angle) * Math.min(r, NR * 0.92);
-    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(ex, ey);
-    ctx.strokeStyle = 'rgba(212,175,55,0.07)'; ctx.lineWidth = 1;
-    ctx.stroke();
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle='#0c0c1a'; ctx.fillRect(0,0,W,H);
+
+  const s = Math.min(W,H);
+  const NR = s*0.26, HR = s*0.43;
+
+  // zone rings
+  [[NR,'rgba(212,175,55,0.07)','rgba(212,175,55,0.16)'],
+   [HR,'rgba(60,60,140,0.05)', 'rgba(60,60,140,0.12)']].forEach(([r,fill,stroke])=>{
+    ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2);
+    ctx.fillStyle=fill; ctx.fill();
+    ctx.strokeStyle=stroke; ctx.lineWidth=1;
+    ctx.setLineDash([2,6]); ctx.stroke(); ctx.setLineDash([]);
   });
 
-  all.forEach(e => {
-    const { near: NR2, horiz: HR2 } = radii();
-    const angle = labelAngle(e.label);
-    let r;
-    if (e.zone === 'near') {
-      r = NR2 * 0.18 + e.distance * NR2 * 1.5;
-      r = Math.min(r, NR2 * 0.94);
-    } else {
-      r = NR2 + 14 + (e.distance - 0.5) * (HR2 - NR2 - 10) * 1.8;
-      r = Math.max(NR2 + 10, Math.min(r, HR2 * 0.96));
+  // zone text
+  ctx.font='9px "SF Mono",monospace'; ctx.textBaseline='middle';
+  ctx.fillStyle='rgba(212,175,55,0.3)'; ctx.fillText('near',    cx+NR-28, cy-NR+6);
+  ctx.fillStyle='rgba(60,60,140,0.5)';  ctx.fillText('horizon', cx+HR-46, cy-HR+6);
+
+  // lines center→near (only non-selected, dim)
+  allEntities.filter(e=>e.zone==='near').forEach(e=>{
+    const {x,y} = entityPos(e);
+    e._sx=x; e._sy=y;
+    const isSel = selectedLabel === e.label;
+    ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(x,y);
+    ctx.strokeStyle = isSel ? 'rgba(212,175,55,0.18)' : 'rgba(212,175,55,0.05)';
+    ctx.lineWidth=1; ctx.stroke();
+  });
+
+  // horizon positions (no lines)
+  allEntities.filter(e=>e.zone==='horizon').forEach(e=>{
+    const {x,y} = entityPos(e); e._sx=x; e._sy=y;
+  });
+
+  // dots + labels
+  // sort: horizon first, then near, selected last
+  const sorted = [...allEntities].sort((a,b)=>{
+    if (a.zone===b.zone) return 0;
+    return a.zone==='horizon' ? -1 : 1;
+  });
+  if (selectedLabel) {
+    const idx = sorted.findIndex(e=>e.label===selectedLabel);
+    if (idx>=0) sorted.push(...sorted.splice(idx,1));
+  }
+
+  sorted.forEach(e=>{
+    const {x,y,angle} = entityPos(e);
+    e._sx=x; e._sy=y;
+    const [cr,cg,cb] = kc(e.kind);
+    const isHov = hoveredLabel === e.label;
+    const isSel = selectedLabel === e.label;
+    const isNear = e.zone==='near';
+    const alpha  = isNear ? (isSel||isHov?1:0.85) : (isSel||isHov?0.9:0.35);
+    const radius = isNear ? (isSel?7:isHov?6:4) : (isHov||isSel?5:2.5);
+
+    // glow for near or hovered
+    if (isNear || isHov || isSel) {
+      const gr = ctx.createRadialGradient(x,y,0,x,y,radius*5);
+      gr.addColorStop(0,`rgba(${cr},${cg},${cb},${isSel?0.3:0.15})`);
+      gr.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=gr; ctx.beginPath(); ctx.arc(x,y,radius*5,0,Math.PI*2); ctx.fill();
     }
-    const ex = cx + Math.cos(angle) * r;
-    const ey = cy + Math.sin(angle) * r;
-    e._sx = ex; e._sy = ey;  // store for hover
 
-    const [cr,cg,cb] = kindColor(e.kind);
-    const isHov = hoveredEntity === e.label;
-    const alpha = e.zone === 'near' ? 0.9 : 0.45;
-    const radius = e.zone === 'near' ? (isHov ? 6 : 4) : (isHov ? 5 : 3);
+    ctx.beginPath(); ctx.arc(x,y,radius,0,Math.PI*2);
+    ctx.fillStyle=`rgba(${cr},${cg},${cb},${alpha})`; ctx.fill();
 
-    // glow
-    if (e.zone === 'near' || isHov) {
-      const grd = ctx.createRadialGradient(ex,ey,0,ex,ey,radius*4);
-      grd.addColorStop(0, `rgba(${cr},${cg},${cb},0.22)`);
-      grd.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = grd; ctx.beginPath(); ctx.arc(ex,ey,radius*4,0,Math.PI*2); ctx.fill();
-    }
-
-    ctx.beginPath(); ctx.arc(ex,ey,radius,0,Math.PI*2);
-    ctx.fillStyle = `rgba(${cr},${cg},${cb},${alpha})`; ctx.fill();
-
-    // label: near entities always, horizon on hover
-    if (e.zone === 'near' || isHov) {
-      const label = e.label.length > 28 ? e.label.slice(0,27)+'…' : e.label;
-      const tx = ex + Math.cos(angle) * (radius + 6);
-      const ty = ey + Math.sin(angle) * (radius + 6);
-      ctx.font = e.zone==='near' ? '10px "SF Mono",monospace' : '9px "SF Mono",monospace';
-      ctx.textAlign = Math.cos(angle) > 0 ? 'left' : 'right';
+    // label: near always (max 8 by closeness), horizon only on hover/select
+    const showLabel = isNear || isHov || isSel;
+    if (showLabel) {
+      const lbl = e.label.length>30 ? e.label.slice(0,29)+'…' : e.label;
+      const tx = x + Math.cos(angle)*(radius+5);
+      const ty = y + Math.sin(angle)*(radius+5);
+      ctx.font = (isSel||isHov) ? 'bold 10px "SF Mono",monospace' : '10px "SF Mono",monospace';
+      ctx.textAlign  = Math.cos(angle)>0 ? 'left' : 'right';
       ctx.textBaseline = 'middle';
-      ctx.fillStyle = isHov ? `rgba(${cr},${cg},${cb},1)` : `rgba(${cr},${cg},${cb},0.75)`;
-      ctx.fillText(label, tx, ty);
-      ctx.textAlign = 'left';
+      ctx.fillStyle = isSel ? `rgba(${cr},${cg},${cb},1)`
+                    : isHov ? `rgba(${cr},${cg},${cb},0.95)`
+                    :         `rgba(${cr},${cg},${cb},0.65)`;
+      ctx.fillText(lbl, tx, ty);
     }
   });
 
-  // self — gold dot at center
-  const sgrd = ctx.createRadialGradient(cx,cy,0,cx,cy,22);
-  sgrd.addColorStop(0, 'rgba(212,175,55,0.5)');
-  sgrd.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = sgrd; ctx.beginPath(); ctx.arc(cx,cy,22,0,Math.PI*2); ctx.fill();
-  ctx.beginPath(); ctx.arc(cx,cy,5,0,Math.PI*2);
-  ctx.fillStyle = 'rgba(212,175,55,0.95)'; ctx.fill();
-  ctx.font = '9px "SF Mono",monospace';
-  ctx.fillStyle = 'rgba(212,175,55,0.55)'; ctx.textAlign='center';
-  ctx.fillText('you', cx, cy + 18); ctx.textAlign='left';
+  ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+
+  // self
+  const sg = ctx.createRadialGradient(cx,cy,0,cx,cy,20);
+  sg.addColorStop(0,'rgba(212,175,55,0.45)'); sg.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=sg; ctx.beginPath(); ctx.arc(cx,cy,20,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx,cy,4.5,0,Math.PI*2);
+  ctx.fillStyle='rgba(212,175,55,0.95)'; ctx.fill();
+  ctx.font='9px "SF Mono",monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillStyle='rgba(212,175,55,0.4)'; ctx.fillText('you',cx,cy+17);
+  ctx.textAlign='left'; ctx.textBaseline='alphabetic';
 }
 
 // hover
-canvas.addEventListener('mousemove', e => {
-  const rect = canvas.getBoundingClientRect();
-  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
-  if (!lastField) return;
-  const all = [
-    ...(lastField.near    || []).map(x => ({...x, zone:'near'})),
-    ...(lastField.horizon || []).map(x => ({...x, zone:'horizon'})),
-  ];
-  let found = null;
-  all.forEach(ent => {
-    if (ent._sx === undefined) return;
-    if (Math.hypot(ent._sx - mx, ent._sy - my) < 18) found = ent;
+canvas.addEventListener('mousemove', e=>{
+  const r = canvas.getBoundingClientRect();
+  const mx=e.clientX-r.left, my=e.clientY-r.top;
+  let found=null;
+  allEntities.forEach(ent=>{
+    if(ent._sx===undefined) return;
+    const d=Math.hypot(ent._sx-mx,ent._sy-my);
+    if(d<20) found=ent;
   });
-  hoveredEntity = found ? found.label : null;
-  if (lastField) drawField(lastField);
+  const lbl = found?found.label:null;
+  if(lbl!==hoveredLabel){ hoveredLabel=lbl; if(lastField) drawField(lastField); }
+  canvas.style.cursor = found?'pointer':'default';
+});
+canvas.addEventListener('mouseleave',()=>{
+  hoveredLabel=null; if(lastField) drawField(lastField);
+});
 
-  if (found) {
-    const parts = [];
-    if (found.distance !== undefined) parts.push(`distance  ${found.distance.toFixed(3)}`);
-    if (found.kind) parts.push(`kind      ${found.kind}`);
-    if (found.components) {
-      const c = found.components;
-      if (c.semantic    !== undefined) parts.push(`semantic  ${c.semantic.toFixed(2)}`);
-      if (c.relational  !== undefined) parts.push(`relational ${c.relational.toFixed(2)}`);
-      if (c.activity    !== undefined) parts.push(`activity  ${c.activity.toFixed(2)}`);
-      if (c.temporal    !== undefined) parts.push(`temporal  ${c.temporal.toFixed(2)}`);
-      if (c.attention   !== undefined) parts.push(`attention ${c.attention.toFixed(2)}`);
-    }
-    tooltip.style.display = 'block';
-    tooltip.style.left = (e.clientX + 14) + 'px';
-    tooltip.style.top  = (e.clientY - 10) + 'px';
-    tooltip.innerHTML  = `<div style="color:#d4af37;margin-bottom:6px">${escapeHtml(found.label)}</div>`
-      + parts.map(p=>`<div>${escapeHtml(p)}</div>`).join('');
-  } else {
-    tooltip.style.display = 'none';
+// click → open panel
+canvas.addEventListener('click', e=>{
+  const r = canvas.getBoundingClientRect();
+  const mx=e.clientX-r.left, my=e.clientY-r.top;
+  let found=null;
+  allEntities.forEach(ent=>{
+    if(ent._sx===undefined) return;
+    if(Math.hypot(ent._sx-mx,ent._sy-my)<20) found=ent;
+  });
+  if(found) openPanel(found);
+});
+
+// panel
+const rightEl = document.getElementById('right');
+function openPanel(entity) {
+  selectedLabel = entity.label;
+  if(lastField) drawField(lastField);
+
+  document.getElementById('panel-title').textContent = entity.label;
+  document.getElementById('panel-kind').textContent  = entity.kind||'';
+  document.getElementById('dist-total').textContent  = entity.distance ? entity.distance.toFixed(3) : '—';
+
+  // distance bars
+  const bars = document.getElementById('dist-bars');
+  bars.innerHTML='';
+  const comps = [
+    ['semantic',   entity.s_semantic,   '#a080e8'],
+    ['relational', entity.s_relational, '#50a8e8'],
+    ['activity',   entity.s_activity,   '#50c880'],
+    ['temporal',   entity.s_temporal,   '#e8a050'],
+    ['attention',  entity.s_attention,  '#a0a0e0'],
+  ];
+  comps.forEach(([name,val,color])=>{
+    if(val===undefined||val===null) return;
+    const pct = Math.round(val*100);
+    bars.innerHTML+=`<div class="bar-row">
+      <span class="bar-label">${name}</span>
+      <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div>
+      <span class="bar-val">${val.toFixed(2)}</span>
+    </div>`;
+  });
+
+  // search link
+  const sl = document.getElementById('panel-search-link');
+  sl.href = 'https://www.google.com/search?q=' + encodeURIComponent(entity.label);
+  sl.textContent = 'search "' + (entity.label.length>32?entity.label.slice(0,31)+'…':entity.label) + '" →';
+
+  // messages from field state
+  renderMessages(entity.label);
+
+  rightEl.classList.add('open');
+  document.getElementById('msg-input').dataset.entity = entity.label;
+}
+
+function renderMessages(entityLabel) {
+  const msgs = (lastField&&lastField.messages||[]).filter(m=>m.entity_label===entityLabel);
+  const el = document.getElementById('panel-messages');
+  if(!msgs.length){
+    el.innerHTML='<div id="panel-empty">no messages yet</div>'; return;
   }
-});
-canvas.addEventListener('mouseleave', () => {
-  tooltip.style.display = 'none';
-  hoveredEntity = null;
-  if (lastField) drawField(lastField);
+  el.innerHTML = msgs.map(m=>`
+    <div class="msg-item">
+      <div class="msg-author">${escapeHtml(m.author||'wanderer')}</div>
+      <div class="msg-text">${escapeHtml(m.content)}</div>
+    </div>`).join('');
+}
+
+document.getElementById('panel-close').addEventListener('click',()=>{
+  rightEl.classList.remove('open');
+  selectedLabel=null;
+  if(lastField) drawField(lastField);
 });
 
-function escapeHtml(s) {
+// send message
+async function sendMessage() {
+  const input = document.getElementById('msg-input');
+  const text  = input.value.trim();
+  const entity= input.dataset.entity;
+  if(!text||!entity) return;
+  input.value='';
+  try {
+    await fetch('/message', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ entity_label: entity, content: text, author: 'visitor' }),
+    });
+    await fetchField(currentInterest);  // refresh messages
+    renderMessages(entity);
+  } catch(_){}
+}
+document.getElementById('msg-send').addEventListener('click', sendMessage);
+document.getElementById('msg-input').addEventListener('keydown', e=>{
+  if(e.key==='Enter') sendMessage();
+});
+
+function escapeHtml(s){
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-// fetch field
+// fetch
 let currentInterest = 'programming';
 async function fetchField(interest) {
-  document.getElementById('field-status').textContent = 'fetching...';
+  document.getElementById('status-line').textContent = '...';
   try {
     const res = await fetch(`/field?interest=${encodeURIComponent(interest)}`);
-    const f = await res.json();
-    document.getElementById('field-status').textContent =
-      `updated ${new Date().toLocaleTimeString()}`;
-    document.getElementById('info-near').textContent =
-      `near: ${(f.near||[]).length}`;
-    document.getElementById('info-horizon').textContent =
-      `horizon: ${(f.horizon||[]).length}`;
-    document.getElementById('info-presence').textContent =
-      `${f.presence || 0} here now`;
-    document.getElementById('info-position').textContent =
-      f.position ? `position: ${f.position}` : '';
+    const f   = await res.json();
+    document.getElementById('status-line').textContent =
+      `${f.presence||0} here · ${new Date().toLocaleTimeString()}`;
+    document.getElementById('info-counts').textContent =
+      `near ${(f.near||[]).length} · horizon ${(f.horizon||[]).length}`;
     resize();
     drawField(f);
-  } catch(err) {
-    document.getElementById('field-status').textContent = 'error';
+    // refresh panel if open
+    if(selectedLabel) renderMessages(selectedLabel);
+  } catch(_){
+    document.getElementById('status-line').textContent = 'error';
   }
 }
 
-document.getElementById('interest-btn').addEventListener('click', () => {
-  currentInterest = document.getElementById('interest-input').value.trim() || 'curiosity';
+document.getElementById('interest-btn').addEventListener('click',()=>{
+  currentInterest = document.getElementById('interest-input').value.trim()||'curiosity';
   fetchField(currentInterest);
 });
-document.getElementById('interest-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter') {
-    currentInterest = e.target.value.trim() || 'curiosity';
+document.getElementById('interest-input').addEventListener('keydown',e=>{
+  if(e.key==='Enter'){
+    currentInterest=e.target.value.trim()||'curiosity';
     fetchField(currentInterest);
   }
 });
@@ -851,7 +822,7 @@ fetchField(currentInterest);
 </script>
 </body>
 </html>
-"##;
+"###;
 
 static LANDING_HTML: &str = r##"<!DOCTYPE html>
 <html lang="en">
