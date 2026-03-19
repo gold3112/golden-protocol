@@ -123,41 +123,39 @@ function handleSpaceEvent(evt) {
 
 async function connect() {
   try {
-    const [local, session] = await Promise.all([
-      chrome.storage.local.get('userId'),
-      chrome.storage.session.get(['pageText']),
-    ]);
+    const { userId } = await chrome.storage.local.get('userId');
 
-    const params = new URLSearchParams({
-      interest: session.pageText || 'curiosity exploration encounter',
-      passive:  'true',
+    // /arrive で identity を復元・作成し、初期 field state を即座に表示
+    const res = await fetch(`${SERVER}/arrive`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        identity: userId || null,
+        name: userId ? 'wanderer_' + userId.slice(0, 8) : null,
+      }),
     });
-    // nameはuserIdの先頭8文字 (安定した匿名識別子)
-    if (local.userId) {
-        params.set('user_id', local.userId);
-        params.set('name', 'wanderer_' + local.userId.slice(0, 8));
-    }
+    const data = await res.json();
+    const resolvedId = data.identity;
+    await chrome.storage.local.set({ userId: resolvedId });
 
+    // 初期 field state を即座にレンダリング
+    render(data.field);
+
+    // SSE で継続的に更新 — user_id のみ。interest は identity が持っている
     if (sse) sse.close();
-
-    // ポーリングではなくSSE — 空間がこちらに届く
-    // /field/stream への接続はユーザーを「存在している」状態として登録する
+    const params = new URLSearchParams({
+      user_id: resolvedId,
+      passive: 'true',
+      name:    'wanderer_' + resolvedId.slice(0, 8),
+    });
     sse = new EventSource(`${SERVER}/field/stream?${params}`);
 
     sse.addEventListener('field', (e) => {
-      try {
-        const field = JSON.parse(e.data);
-        render(field);
-      } catch (_) {}
+      try { render(JSON.parse(e.data)); } catch (_) {}
     });
-
     sse.addEventListener('space', (e) => {
-      try {
-          const evt = JSON.parse(e.data);
-          handleSpaceEvent(evt);
-      } catch (_) {}
+      try { handleSpaceEvent(JSON.parse(e.data)); } catch (_) {}
     });
-
     sse.onerror = () => {
       const st = document.getElementById('status');
       st.textContent = 'no signal';

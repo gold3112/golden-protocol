@@ -266,10 +266,8 @@ pub fn load_all_entities() -> Vec<Entity> {
         let kind = match kind.as_str() {
             "Human"   => EntityKind::Human,
             "AI"      => EntityKind::AI,
-            "Service" => EntityKind::Service,
-            "Stream"  => EntityKind::Stream,
             "Event"   => EntityKind::Event,
-            _         => EntityKind::Data,
+            _         => EntityKind::Service, // migration: Stream/Data → Service
         };
         let embedding:    Option<Vec<f32>> = serde_json::from_str(&emb).ok();
         let activity_vec: Option<Vec<f32>> = act.and_then(|a| serde_json::from_str(&a).ok());
@@ -279,31 +277,6 @@ pub fn load_all_entities() -> Vec<Entity> {
         Some(Entity { id, kind, label, embedding, activity_vec, last_active, expires_at })
     })
     .collect()
-}
-
-// --- RSS フィード登録 ---
-
-pub fn save_feed(url: &str, max_items: usize) -> Result<()> {
-    db().execute(
-        "INSERT OR REPLACE INTO rss_feeds (url, max_items, added_at) VALUES (?1, ?2, ?3)",
-        params![url, max_items as i64, Utc::now().to_rfc3339()],
-    )?;
-    Ok(())
-}
-
-pub fn load_feeds() -> Vec<(String, usize)> {
-    let conn = db();
-    let mut stmt = match conn.prepare("SELECT url, max_items FROM rss_feeds") {
-        Ok(s) => s,
-        Err(_) => return vec![],
-    };
-    let rows = match stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))) {
-        Ok(r) => r,
-        Err(_) => return vec![],
-    };
-    rows.filter_map(|r| r.ok())
-        .map(|(url, max)| (url, max as usize))
-        .collect()
 }
 
 // --- ピア管理 ---

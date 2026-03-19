@@ -5,14 +5,13 @@ use petgraph::graph::{DiGraph, NodeIndex};
 use std::collections::HashMap;
 
 /// 存在の種別 — 人・AI・サービス・イベントすべて同じレイヤー
+/// 「存在」とは反応可能なもの。コンテンツはここにいない。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum EntityKind {
     Human,
     AI,
     Service,
-    Stream,
     Event,
-    Data,
 }
 
 /// 存在 = 反応可能なもの

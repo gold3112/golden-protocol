@@ -1,55 +1,63 @@
-// background.js — identity 管理のみ (SSE なし)
+// background.js — ブラウジングが空間を育てる
 // MV3 の service worker は短命なので SSE は持たない
 
 const SERVER = 'https://space.gold3112.online';
 
-async function getUserId() {
-  const stored = await chrome.storage.local.get('userId');
-  if (stored.userId) return stored.userId;
-
+// identity を /arrive で作成・復元
+async function getOrCreateIdentity() {
+  const { userId } = await chrome.storage.local.get('userId');
   try {
-    const res  = await fetch(`${SERVER}/identity/new?interest=curiosity+exploration+encounter`);
+    const res = await fetch(`${SERVER}/arrive`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ identity: userId || null }),
+    });
     const data = await res.json();
-    await chrome.storage.local.set({ userId: data.id });
-    return data.id;
+    await chrome.storage.local.set({ userId: data.identity });
+    return { userId: data.identity, field: data.field };
   } catch {
-    // サーバー未起動時は一時 UUID
-    const id = crypto.randomUUID();
+    const id = userId || crypto.randomUUID();
     await chrome.storage.local.set({ userId: id });
-    return id;
+    return { userId: id, field: null };
   }
 }
 
-// インストール時に identity を作成
-chrome.runtime.onInstalled.addListener(() => getUserId());
+chrome.runtime.onInstalled.addListener(() => getOrCreateIdentity());
 
-async function passiveAbsorb(text) {
-  try {
-    const userId = await getUserId();
-    const interest = encodeURIComponent(text.slice(0, 300));
-    const res = await fetch(
-      `${SERVER}/field?passive=true&user_id=${userId}&interest=${interest}`
-    );
-    if (!res.ok) return;
-    const data = await res.json();
-    // バッジに存在数を表示
-    const presence = data.presence ?? 0;
-    await chrome.action.setBadgeText({ text: presence > 0 ? String(presence) : '' });
-    await chrome.action.setBadgeBackgroundColor({ color: '#c8a840' });
-  } catch (_) {}
+// ページ訪問を空間への参加に変える
+async function absorbPage(text, title) {
+  if (!title || title.length < 4) return;
+
+  const { userId, field } = await getOrCreateIdentity();
+
+  // バッジに presence 数を表示
+  const presence = field?.presence ?? 0;
+  chrome.action.setBadgeText({ text: presence > 0 ? String(presence) : '' });
+  chrome.action.setBadgeBackgroundColor({ color: '#c8a840' });
+
+  // 訪れたページを空間のエンティティとして宣言
+  // ブラウジングが空間を育てる。誰かが同じ場所を訪れたとき、近くに現れる。
+  if (text && text.length > 20) {
+    fetch(`${SERVER}/entities`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        label: title.slice(0, 80),
+        kind:  'Service',
+        text:  text.slice(0, 300),
+      }),
+    }).catch(() => {});
+  }
 }
 
-// メッセージハンドラ
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'PAGE_CONTEXT') {
-    // ページテキストを session storage に保存 (popup が読む)
     chrome.storage.session.set({ pageText: msg.text, pageUrl: msg.url });
-    // ポップアップが閉じていても passive 吸収 + バッジ更新
-    passiveAbsorb(msg.text);
+    absorbPage(msg.text, msg.title);
     sendResponse({ ok: true });
   }
   if (msg.type === 'GET_USER_ID') {
-    getUserId().then(id => sendResponse({ userId: id }));
+    getOrCreateIdentity().then(({ userId }) => sendResponse({ userId }));
     return true;
   }
   return true;

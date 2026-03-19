@@ -1,0 +1,1270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Golden Protocol</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #06060f;
+  font-family: 'SF Mono','Fira Code','Menlo',monospace;
+  font-size: 12px;
+  height: 100vh;
+  overflow: hidden;
+}
+canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
+
+/* ─── entry overlay ─────────────────────────────── */
+#entry {
+  position: fixed; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(6,6,15,0.62);
+  z-index: 100;
+  transition: opacity 1.6s ease;
+  backdrop-filter: blur(4px);
+}
+#entry.hidden { opacity: 0; pointer-events: none; }
+
+#entry-box {
+  text-align: center; max-width: 380px; padding: 0 28px;
+  animation: fadeUp 0.9s cubic-bezier(0.16,1,0.3,1) forwards;
+}
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+#entry-title {
+  font-size: 9px; letter-spacing: 0.5em; text-transform: uppercase;
+  color: #c8a840; margin-bottom: 44px;
+}
+
+#entry-q {
+  font-size: 24px; color: #c4c4ec; font-weight: normal;
+  line-height: 1.5; margin-bottom: 14px;
+  animation: breathe 5s ease-in-out infinite;
+}
+#entry-sub {
+  font-size: 12px; color: #6464a0; margin-bottom: 40px; line-height: 2;
+}
+
+#entry-input {
+  width: 100%; background: transparent;
+  border: none; border-bottom: 1px solid #484880;
+  color: #c8c8f0; font-family: inherit; font-size: 16px;
+  padding: 12px 0; outline: none; text-align: center;
+  letter-spacing: 0.06em; transition: border-color 0.3s;
+}
+#entry-input::placeholder { color: #383860; }
+#entry-input:focus { border-color: #8888d0; }
+
+#entry-name {
+  width: 100%; background: transparent;
+  border: none; border-bottom: 1px solid #252545;
+  color: #7070a8; font-family: inherit; font-size: 13px;
+  padding: 10px 0; outline: none; text-align: center;
+  letter-spacing: 0.05em; margin-bottom: 0;
+  transition: border-color 0.3s;
+}
+#entry-name::placeholder { color: #282848; }
+#entry-name:focus { border-color: #484878; }
+
+#entry-actions { margin-top: 28px; display: flex; gap: 20px; justify-content: center; align-items: center; }
+#entry-enter {
+  background: none; border: 1px solid #5858a8;
+  color: #9090d8; font-family: inherit; font-size: 11px;
+  letter-spacing: 0.22em; padding: 10px 28px; cursor: pointer;
+  transition: all 0.25s;
+}
+#entry-enter:hover {
+  border-color: #a0a0e8; color: #c8c8ff;
+  box-shadow: 0 0 28px rgba(120,120,240,0.13);
+}
+#entry-skip {
+  background: none; border: none; color: #3a3a5e;
+  font-family: inherit; font-size: 11px; cursor: pointer;
+  letter-spacing: 0.1em; padding: 8px 0; transition: color 0.2s;
+}
+#entry-skip:hover { color: #686890; }
+
+/* ─── main ui ───────────────────────────────────── */
+#ui {
+  position: fixed; inset: 0;
+  pointer-events: none;
+  display: flex; flex-direction: column;
+  justify-content: space-between;
+  padding: 28px 32px;
+}
+#top { display: flex; justify-content: space-between; align-items: flex-start; }
+#tagline {
+  font-size: 9px; letter-spacing: 0.24em; text-transform: uppercase;
+  color: #484868; margin-bottom: 10px;
+}
+#position {
+  font-size: 18px; color: #d4af37; letter-spacing: 0.03em;
+  min-height: 28px; max-width: 400px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#meta-line { font-size: 10px; color: #404060; margin-top: 6px; }
+#meta-line span { color: #585880; }
+#presence-block { text-align: right; }
+#presence-count {
+  font-size: 30px; color: #7878c0; letter-spacing: -0.02em;
+  transition: color 0.5s;
+}
+#presence-label {
+  font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase;
+  color: #404060; margin-top: 4px;
+}
+#bottom {
+  display: flex; justify-content: space-between; align-items: flex-end;
+  position: relative;
+}
+#drift { font-size: 11px; color: #a07830; min-height: 18px; letter-spacing: 0.06em; }
+#footer-right { text-align: right; }
+#conn {
+  font-size: 9px; letter-spacing: 0.15em; color: #484868;
+  margin-bottom: 6px; transition: color 0.3s;
+}
+#footer-link { pointer-events: auto; }
+#footer-link a {
+  font-size: 10px; color: #505080; text-decoration: none;
+  border-bottom: 1px solid #2a2a50; letter-spacing: 0.08em;
+  transition: all 0.2s;
+}
+#footer-link a:hover { color: #9090d0; border-color: #6060b0; }
+
+/* ─── wander bar ────────────────────────────────── */
+#wander-bar {
+  position: absolute;
+  left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px;
+  pointer-events: auto;
+  opacity: 0.55; transition: opacity 0.4s;
+}
+#wander-bar:hover, #wander-bar:focus-within { opacity: 1.0; }
+#wander-label { font-size: 11px; color: #686890; }
+#wander-input {
+  background: transparent; border: none;
+  border-bottom: 1px solid #383858;
+  color: #9898c8; font-family: inherit; font-size: 11px;
+  width: 200px; padding: 4px 0; outline: none;
+  letter-spacing: 0.05em; text-align: center;
+  transition: border-color 0.3s, width 0.3s;
+}
+#wander-input:focus { border-color: #6060a8; width: 260px; }
+#wander-input::placeholder { color: #282848; }
+
+/* ─── drift: clickable ──────────────────────────── */
+.drift-link {
+  cursor: pointer; transition: color 0.2s;
+  pointer-events: auto;
+}
+.drift-link:hover { color: #c89840; }
+
+/* ─── entity panel ──────────────────────────────── */
+#panel {
+  position: fixed;
+  right: 28px; top: 50%; transform: translateY(-50%);
+  left: auto;
+  width: 240px;
+  background: rgba(8,8,20,0.96);
+  border: 1px solid #282848;
+  padding: 20px;
+  pointer-events: auto;
+  opacity: 0; transition: opacity 0.25s ease, transform 0.25s ease;
+  max-height: 70vh; overflow-y: auto;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 48px rgba(0,0,0,0.7);
+}
+#panel.visible { opacity: 1; }
+
+/* ─── panel wander button ───────────────────────── */
+#panel-wander {
+  display: block; width: 100%;
+  background: none; border: 1px solid #303060;
+  color: #6060a8; font-family: inherit; font-size: 10px;
+  letter-spacing: 0.12em; padding: 7px 0; cursor: pointer;
+  margin-bottom: 14px; transition: all 0.2s;
+}
+#panel-wander:hover { border-color: #6060b0; color: #9898d8; }
+#panel-kind {
+  font-size: 9px; letter-spacing: 0.22em; text-transform: uppercase;
+  color: #585890; margin-bottom: 10px;
+}
+#panel-label {
+  font-size: 13px; color: #c8c8f0; line-height: 1.6;
+  margin-bottom: 14px; word-break: break-word;
+}
+#panel-search {
+  display: block; font-size: 10px; color: #6060a8;
+  text-decoration: none; letter-spacing: 0.1em;
+  border-bottom: 1px solid #202040; padding-bottom: 12px; margin-bottom: 14px;
+  transition: color 0.2s, border-color 0.2s;
+}
+#panel-search:hover { color: #9898e0; border-color: #5050b0; }
+#panel-close {
+  position: absolute; top: 12px; right: 14px;
+  background: none; border: none; color: #484870;
+  font-family: inherit; font-size: 15px; cursor: pointer;
+  line-height: 1; transition: color 0.2s;
+}
+#panel-close:hover { color: #9090d0; }
+#panel-messages { margin-bottom: 12px; min-height: 20px; }
+.panel-msg { margin-bottom: 10px; }
+.panel-msg-author {
+  font-size: 9px; color: #505080; letter-spacing: 0.1em;
+  display: block; margin-bottom: 3px;
+}
+.panel-msg-text {
+  font-size: 11px; color: #9898c8; line-height: 1.6;
+  display: block; word-break: break-word;
+}
+.panel-no-msg {
+  font-size: 10px; color: #343458; letter-spacing: 0.05em; font-style: italic;
+}
+#panel-msg-form {
+  display: flex; gap: 6px; margin-top: 4px;
+  border-top: 1px solid #1e1e3a; padding-top: 12px;
+}
+#panel-msg-input {
+  flex: 1; background: transparent; border: none;
+  border-bottom: 1px solid #303060; color: #9898c8;
+  font-family: inherit; font-size: 11px; padding: 4px 0;
+  outline: none; transition: border-color 0.2s;
+}
+#panel-msg-input::placeholder { color: #282850; }
+#panel-msg-input:focus { border-color: #5858b0; }
+#panel-msg-send {
+  background: none; border: none; color: #505090;
+  font-family: inherit; font-size: 13px; cursor: pointer;
+  padding: 0 4px; transition: color 0.2s;
+}
+#panel-msg-send:hover { color: #9090d8; }
+
+/* ─── hint ──────────────────────────────────────── */
+#hint {
+  position: fixed; bottom: 64px; left: 50%; transform: translateX(-50%);
+  font-size: 10px; color: #505078; letter-spacing: 0.16em;
+  pointer-events: none; transition: opacity 2s ease;
+  white-space: nowrap;
+}
+#hint.hidden { opacity: 0; }
+
+/* ─── animations ────────────────────────────────── */
+@keyframes breathe {
+  0%,100% { opacity: 0.72; } 50% { opacity: 1; }
+}
+.evt-time { font-size: 9px; color: rgba(255,150,70,0.7); letter-spacing: 0.08em; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<!-- entry overlay -->
+<div id="entry">
+  <div id="entry-box">
+    <div id="entry-title">Golden Protocol</div>
+    <div id="entry-q">What are you thinking about?</div>
+    <div id="entry-sub">The server returns distance, not pages.<br>Others are already wandering.</div>
+    <input id="entry-input" type="text" placeholder="type anything..." autocomplete="off" spellcheck="false">
+    <input id="entry-name" type="text" placeholder="your name  (optional)" autocomplete="off" spellcheck="false">
+    <div id="entry-actions">
+      <button id="entry-enter">enter →</button>
+      <button id="entry-skip">just wander</button>
+    </div>
+  </div>
+</div>
+
+<!-- main ui -->
+<div id="ui">
+  <div id="top">
+    <div>
+      <div id="tagline">Golden Protocol · space.gold3112.online</div>
+      <div id="position">—</div>
+      <div id="meta-line"><span id="conn">connecting</span></div>
+    </div>
+    <div id="presence-block">
+      <div id="presence-count">—</div>
+      <div id="presence-label">here</div>
+    </div>
+  </div>
+  <div id="bottom">
+    <div id="drift"></div>
+    <div id="wander-bar">
+      <span id="wander-label">›</span>
+      <input id="wander-input" type="text" placeholder="what draws you now..." autocomplete="off" spellcheck="false" maxlength="120">
+    </div>
+    <div id="footer-right">
+      <div id="footer-link"><a href="https://github.com/gold3112/golden-protocol" target="_blank">source →</a></div>
+    </div>
+  </div>
+</div>
+
+<!-- entity panel -->
+<div id="panel">
+  <button id="panel-close">×</button>
+  <div id="panel-kind"></div>
+  <div id="panel-label"></div>
+  <a id="panel-search" href="#" target="_blank">search →</a>
+  <button id="panel-wander" style="display:none">wander toward this →</button>
+  <div id="panel-messages"></div>
+  <div id="panel-msg-form">
+    <input id="panel-msg-input" type="text" placeholder="say something..." autocomplete="off" maxlength="280">
+    <button id="panel-msg-send">→</button>
+  </div>
+</div>
+
+<div id="hint">click to enter · WASD · mouse to look</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+let W, H, cx, cy;
+let selfX, selfY;
+let mouseX = -999, mouseY = -999;
+
+// ambient particles
+let particles = [];
+function initParticles() {
+  particles = Array.from({length: 60}, () => ({
+    x:  Math.random() * W,
+    y:  Math.random() * H,
+    vx: (Math.random() - 0.5) * 0.22,
+    vy: (Math.random() - 0.5) * 0.22,
+    r:  0.4 + Math.random() * 1.1,
+    a:  0.018 + Math.random() * 0.05,
+  }));
+}
+
+function resize() {
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  cx = W / 2; cy = H / 2;
+  if (selfX === undefined) { selfX = cx; selfY = cy; }
+  initParticles();
+}
+window.addEventListener('resize', resize);
+resize();
+
+function labelAngle(label) {
+  let h = 5381;
+  for (let i = 0; i < label.length; i++) h = (((h << 5) + h) + label.charCodeAt(i)) >>> 0;
+  return (h % 10000) / 10000 * Math.PI * 2;
+}
+
+// ─── 3D perspective camera ────────────────────────
+const CAM = { fov: 520, d: 190 };
+const CAM_HEIGHT   = 140;   // camera eye level in world space
+const HORIZON_FRAC = 0.40;
+let camZ = 0, camVZ = 0;    // forward/back
+let camX = 0, camVX = 0;    // lateral
+let camYaw   = 0, camYawV   = 0;   // horizontal rotation (drag left/right)
+let camPitch = 0, camPitchV = 0;   // vertical tilt (drag up/down)
+
+function project(wx, wy, wz) {
+  // translate to camera-relative
+  const dx = wx - camX;
+  const dy = wy - CAM_HEIGHT;
+  const dz = wz - camZ;
+
+  // yaw rotation (turn left/right around Y axis)
+  const cy = Math.cos(camYaw), sy = Math.sin(camYaw);
+  const rx_y =  dx * cy - dz * sy;
+  const rz_y =  dx * sy + dz * cy;
+
+  // pitch rotation (look up/down around X axis)
+  const cp = Math.cos(camPitch), sp = Math.sin(camPitch);
+  const ry  =  dy * cp - rz_y * sp;
+  const rz  =  dy * sp + rz_y * cp;
+
+  const depth = rz + CAM.d;
+  if (depth < 1) return null;
+  const s = CAM.fov / depth;
+  return {
+    sx: cx + rx_y * s,
+    sy: H * HORIZON_FRAC - ry * s,
+    s,
+    ps: Math.min(s * 380 / CAM.fov, 2.8),
+  };
+}
+
+function entityWorldPos(angle, dist) {
+  const wz = 55 + dist * 780;
+  // spread is decoupled from depth: near entities get generous horizontal room
+  const spread = 280 + dist * 320;
+  const wx = Math.sin(angle) * spread;
+  // more vertical range to avoid stacking
+  const wy = Math.sin(angle * 2.7 + dist * 9.3) * 130;
+  return { wx, wy, wz };
+}
+
+const nodes = {};
+const KIND_COLOR = {
+  AI:      [170, 130, 255],
+  Event:   [255, 150, 70 ],
+  Human:   [255, 210, 90 ],
+  Service: [160, 160, 200],
+};
+
+// birth ripple queue: { wx, wy, wz, t, r, g, b }
+const births = [];
+const bursts = []; // entity expiry burst: { wx, wy, wz, t, r, g, b }
+let prevEntityLabels = new Set();
+
+function updateNodes(field, allEntities) {
+  const distMap = {};
+  (field.near    || []).forEach(e => distMap[e.label] = { d: e.distance, zone: 'near' });
+  (field.horizon || []).forEach(e => distMap[e.label] = { d: e.distance, zone: 'horizon' });
+
+  allEntities.forEach(e => {
+    const angle = labelAngle(e.label);
+    const info  = distMap[e.label];
+    const dist  = info ? info.d : 0.88;
+    const zone  = info ? info.zone : 'beyond';
+    const { wx, wy, wz } = entityWorldPos(angle, dist);
+    const tb = zone === 'near' ? 1.0 : zone === 'horizon' ? 0.35 : 0.08;
+
+    if (!nodes[e.label]) {
+      nodes[e.label] = {
+        wx, wy, wz, b: 0, kind: e.kind, label: e.label,
+        expiresAt: e.expires_at || null,
+        driftPhase: Math.random() * Math.PI * 2,
+        driftFreq:  0.28 + Math.random() * 0.35,
+        driftAmpX:  3  + Math.random() * 5,
+        driftAmpY:  5  + Math.random() * 9,
+        pendingBirth: zone !== 'beyond',
+        birthKind: e.kind,
+      };
+    }
+    const n = nodes[e.label];
+    n.twx = wx; n.twy = wy; n.twz = wz; n.tb = tb; n.kind = e.kind;
+    n.expiresAt = e.expires_at || null;
+  });
+}
+
+// ─── FPS controls ─────────────────────────────────
+const _keys = {};
+let _locked = false;
+
+// Pointer Lock: click canvas → capture mouse for FPS look
+canvas.addEventListener('click', () => {
+  if (!_locked) canvas.requestPointerLock();
+});
+document.addEventListener('pointerlockchange', () => {
+  _locked = document.pointerLockElement === canvas;
+  canvas.style.cursor = _locked ? 'none' : 'default';
+  document.getElementById('hint').textContent =
+    _locked ? 'WASD · mouse look · click to select · ESC to release'
+            : 'click to enter · WASD · mouse to look';
+});
+
+// Mouse look (only when locked)
+document.addEventListener('mousemove', e => {
+  if (!_locked) return;
+  camYaw   += e.movementX * 0.0022;
+  camPitch -= e.movementY * 0.0022;
+  camPitch  = Math.max(-0.70, Math.min(0.70, camPitch));
+});
+
+// Click while locked = select entity at crosshair center
+canvas.addEventListener('mousedown', e => {
+  if (!_locked || e.button !== 0) return;
+  const hit = findNearestNode(cx, H * 0.48, 80);
+  if (hit) showPanel(hit);
+});
+
+document.addEventListener('keydown', e => {
+  _keys[e.key] = true;
+  // '/' → wander bar
+  const active = document.activeElement;
+  const isInput = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA');
+  if (e.key === '/' && !isInput) { e.preventDefault(); document.getElementById('wander-input')?.focus(); }
+});
+document.addEventListener('keyup', e => { _keys[e.key] = false; });
+
+// Scroll: move forward/back (fallback when not locked)
+canvas.addEventListener('wheel', e => {
+  const fwdZ = Math.cos(camYaw), fwdX = Math.sin(camYaw);
+  camZ += fwdZ * e.deltaY * 0.12;
+  camX += fwdX * e.deltaY * 0.12;
+  if (camZ < 0) camZ = 0;
+}, { passive: true });
+
+function updateCamera() {
+  const isTyping = document.activeElement &&
+    (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA');
+  if (isTyping) return;
+
+  const speed  = 5.0;
+  const fwdX   = Math.sin(camYaw), fwdZ = Math.cos(camYaw);
+  const rtX    = Math.cos(camYaw), rtZ  = -Math.sin(camYaw);
+
+  if (_keys['w'] || _keys['W'] || _keys['ArrowUp'])    { camX += fwdX*speed; camZ += fwdZ*speed; }
+  if (_keys['s'] || _keys['S'] || _keys['ArrowDown'])  { camX -= fwdX*speed; camZ -= fwdZ*speed; }
+  if (_keys['a'] || _keys['A'] || _keys['ArrowLeft'])  { camX -= rtX*speed;  camZ -= rtZ*speed;  }
+  if (_keys['d'] || _keys['D'] || _keys['ArrowRight']) { camX += rtX*speed;  camZ += rtZ*speed;  }
+
+  if (camZ < 0) camZ = 0;
+}
+
+// Crosshair drawn when locked
+function drawCrosshair() {
+  if (!_locked) return;
+  const x = cx, y = H * 0.48;
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.moveTo(x - 9, y); ctx.lineTo(x + 9, y);
+  ctx.moveTo(x, y - 9); ctx.lineTo(x, y + 9);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+let hoveredNode = null;
+
+function findNearestNode(mx, my, maxDist) {
+  let best = null, bestD = maxDist;
+  Object.values(nodes).forEach(n => {
+    if (n.b < 0.1) return;
+    const d = Math.hypot(n.rx - mx, n.ry - my); // use rendered pos
+    if (d < bestD) { bestD = d; best = n; }
+  });
+  return best;
+}
+
+let entityMessages = {}; // label -> MessageRecord[]
+let currentPanelEntity = null;
+
+// ephemeral author name — persists for the session
+let authorName = sessionStorage.getItem('gp_author');
+if (!authorName) {
+  authorName = 'wanderer_' + Math.random().toString(36).slice(2, 6);
+  sessionStorage.setItem('gp_author', authorName);
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function updateMessages(field) {
+  const fresh = {};
+  (field.messages || []).forEach(m => {
+    if (!fresh[m.entity_label]) fresh[m.entity_label] = [];
+    fresh[m.entity_label].push(m);
+  });
+  entityMessages = fresh;
+  // refresh panel if open
+  if (currentPanelEntity) renderPanelMessages(currentPanelEntity);
+}
+
+function renderPanelMessages(label) {
+  const msgs = entityMessages[label] || [];
+  const el   = document.getElementById('panel-messages');
+  if (msgs.length === 0) {
+    el.innerHTML = '<div class="panel-no-msg">no voices here yet</div>';
+  } else {
+    el.innerHTML = msgs.map(m =>
+      `<div class="panel-msg">` +
+      `<span class="panel-msg-author">${escapeHtml(m.author)}</span>` +
+      `<span class="panel-msg-text">${escapeHtml(m.text)}</span>` +
+      `</div>`
+    ).join('');
+  }
+}
+
+function showPanel(node) {
+  const panel = document.getElementById('panel');
+
+  document.getElementById('panel-kind').textContent  = node.kind;
+  document.getElementById('panel-label').textContent = node.label;
+  const q = encodeURIComponent(node.label);
+  document.getElementById('panel-search').href = `https://www.google.com/search?q=${q}`;
+
+  // wander toward ボタン (wanderer自身には表示しない)
+  const wanderBtn = document.getElementById('panel-wander');
+  if (wanderBtn) {
+    if (node.kind && node.kind !== 'Human') {
+      wanderBtn.style.display = 'block';
+      wanderBtn.onclick = () => { updateInterest(node.label); closePanel(); };
+    } else {
+      wanderBtn.style.display = 'none';
+    }
+  }
+
+  currentPanelEntity = node.label;
+  renderPanelMessages(node.label);
+  document.getElementById('panel-msg-input').value = '';
+  panel.classList.add('visible');
+  document.getElementById('hint').classList.add('hidden');
+}
+
+function closePanel() {
+  document.getElementById('panel').classList.remove('visible');
+  currentPanelEntity = null;
+}
+
+document.getElementById('panel-close').addEventListener('click', closePanel);
+
+async function sendMessage() {
+  const input = document.getElementById('panel-msg-input');
+  const text  = input.value.trim();
+  if (!text || !currentPanelEntity) return;
+  try {
+    await fetch('/message', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ entity_label: currentPanelEntity, text, author: authorName }),
+    });
+    input.value = '';
+    await fetchField(); // refresh messages
+  } catch {}
+}
+document.getElementById('panel-msg-send').addEventListener('click', sendMessage);
+document.getElementById('panel-msg-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') sendMessage();
+});
+
+// --- ambient atmosphere ---
+function drawParticles() {
+  particles.forEach(p => {
+    p.x += p.vx; p.y += p.vy;
+    if (p.x < 0) p.x += W; if (p.x > W) p.x -= W;
+    if (p.y < 0) p.y += H; if (p.y > H) p.y -= H;
+    ctx.fillStyle = `rgba(180,155,70,${p.a})`;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+  });
+}
+
+function drawVignette() {
+  const grd = ctx.createRadialGradient(cx, cy, Math.min(W,H)*0.22, cx, cy, Math.max(W,H)*0.78);
+  grd.addColorStop(0, 'rgba(0,0,0,0)');
+  grd.addColorStop(1, 'rgba(4,4,12,0.80)');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, W, H);
+}
+
+function drawConstellation() {
+  const nearNodes = Object.values(nodes).filter(n => n.b > 0.45 && n.rx);
+  for (let i = 0; i < nearNodes.length; i++) {
+    for (let j = i + 1; j < nearNodes.length; j++) {
+      const a = nearNodes[i], b = nearNodes[j];
+      const d = Math.hypot(a.rx - b.rx, a.ry - b.ry);
+      if (d > 220) continue;
+      const alpha = (1 - d / 220) * 0.08 * Math.min(a.b, b.b);
+      ctx.strokeStyle = `rgba(90,90,150,${alpha})`;
+      ctx.lineWidth = 0.5;
+      ctx.setLineDash([]);
+      ctx.beginPath(); ctx.moveTo(a.rx, a.ry); ctx.lineTo(b.rx, b.ry); ctx.stroke();
+    }
+  }
+}
+
+
+const convergencePulses = [];
+
+function drawConvergencePulses() {
+  for (let i = convergencePulses.length - 1; i >= 0; i--) {
+    const cp = convergencePulses[i];
+    cp.t += 0.008;
+    if (cp.t > 1) { convergencePulses.splice(i, 1); continue; }
+    const n = nodes[cp.label];
+    if (!n || !n.rx) continue;
+    const radius = cp.t * 120 * (n.projScale || 1);
+    const alpha = (1 - cp.t) * 0.4;
+    ctx.strokeStyle = `rgba(180,140,50,${alpha})`;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([6, 10]);
+    ctx.beginPath(); ctx.arc(n.rx, n.ry, radius, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+}
+
+// --- canvas animation ---
+let clock = 0;
+function animate() {
+  requestAnimationFrame(animate);
+  clock += 0.016;
+  updateCamera();
+
+  ctx.fillStyle = 'rgba(6,6,15,0.13)';
+  ctx.fillRect(0, 0, W, H);
+
+  drawSky();
+  drawGrid();
+  drawHorizon();
+  drawParticles();
+  drawWelcomeRipples();
+  drawBirths();
+  drawBursts();
+
+  // draw far-to-near for correct depth ordering
+  const nodeList = Object.values(nodes);
+  nodeList.sort((a, b) => (b.wz || 0) - (a.wz || 0));
+  nodeList.forEach(n => {
+    if (n.twx !== undefined) {
+      n.wx = lerp(n.wx, n.twx, 0.032);
+      n.wy = lerp(n.wy, n.twy, 0.032);
+      n.wz = lerp(n.wz, n.twz, 0.032);
+    }
+    n.b = lerp(n.b, n.tb || 0, 0.04);
+    drawNode(n);
+  });
+
+  drawConvergencePulses();
+  drawConstellation();
+  drawWanderers();
+  drawSelf();
+  drawVignette();   // fog over everything
+  drawCrosshair();
+}
+
+function drawNode(n) {
+  const b = n.b;
+  if (b < 0.02) return;
+
+  // organic drift in world space — amplitude scales with brightness
+  const ds = b * 1.4;
+  const dwx = n.driftAmpX * ds * Math.sin(clock * n.driftFreq + n.driftPhase);
+  const dwy = n.driftAmpY * ds * Math.cos(clock * n.driftFreq * 0.71 + n.driftPhase + 1.1);
+  const dwz = n.driftAmpX * 0.4 * ds * Math.sin(clock * n.driftFreq * 0.53 + n.driftPhase + 2.3);
+
+  const proj = project(n.wx + dwx, n.wy + dwy, n.wz + dwz);
+  if (!proj) return;
+  n.rx = proj.sx;
+  n.ry = proj.sy;
+  n.projScale = proj.ps;
+
+  // spawn birth ripple after first successful projection
+  if (n.pendingBirth) {
+    n.pendingBirth = false;
+    const [cr, cg, cb] = KIND_COLOR[n.birthKind] || [140, 140, 190];
+    births.push({ wx: n.wx, wy: n.wy, wz: n.wz, t: 0, r: cr, g: cg, b: cb });
+  }
+
+  const [r, g, bl] = KIND_COLOR[n.kind] || [140, 140, 190];
+  const isHovered  = hoveredNode === n;
+  const pulse  = 1 + (isHovered ? 0.3 : 0.10) * Math.sin(clock * 1.4 + labelAngle(n.label));
+  const radius = (3 + b * 6) * proj.ps * pulse * (isHovered ? 1.4 : 1);
+
+  let urgency = 0;
+  if (n.expiresAt) {
+    const remaining = new Date(n.expiresAt) - Date.now();
+    if (remaining <= 0) {
+      urgency = 1;
+    } else if (remaining < 7200000) { // 2 hours
+      urgency = 1 - remaining / 7200000;
+    }
+  }
+  const urgencyBoost = urgency * 0.6;
+
+  if (b > 0.2 || isHovered) {
+    const glowR = isHovered ? radius * 10 : radius * 7;
+    const gr = ctx.createRadialGradient(n.rx, n.ry, 0, n.rx, n.ry, glowR);
+    gr.addColorStop(0, `rgba(${r},${g},${bl},${(isHovered ? 0.4 : b * 0.25) * (1 + urgencyBoost)})`);
+    gr.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = gr;
+    ctx.beginPath();
+    ctx.arc(n.rx, n.ry, glowR, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.fillStyle = `rgba(${r},${g},${bl},${Math.min(1, (isHovered ? 1 : b) * 1.2)})`;
+  ctx.beginPath();
+  ctx.arc(n.rx, n.ry, radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  // label reveals gradually as you approach — distant entities are anonymous dots
+  if (isHovered || b > 0.52) {
+    const alpha = isHovered ? 0.90 : Math.min(0.78, (b - 0.52) * 3.5);
+    const fs = Math.max(8, Math.round((isHovered ? 12 : 8 + b * 4) * Math.min(1.3, proj.ps)));
+    ctx.fillStyle = `rgba(${r},${g},${bl},${alpha})`;
+    ctx.font = `${fs}px "SF Mono",monospace`;
+    ctx.fillText(n.label, n.rx + radius + 4, n.ry + 4);
+  }
+
+  // most recent message floating near entity (near zone only)
+  if (b > 0.62) {
+    const msgs = entityMessages[n.label];
+    if (msgs && msgs.length > 0) {
+      const msg  = msgs[msgs.length - 1];
+      const age  = (Date.now() - new Date(msg.created_at).getTime()) / (2 * 3600 * 1000);
+      const msgA = Math.max(0, (1 - age) * 0.55 * (b - 0.4));
+      if (msgA > 0.04) {
+        const snippet = msg.text.length > 38 ? msg.text.slice(0, 38) + '…' : msg.text;
+        ctx.fillStyle = `rgba(140,140,190,${msgA})`;
+        ctx.font = `9px "SF Mono",monospace`;
+        ctx.fillText('"' + snippet + '"', n.rx + radius + 5, n.ry + 18);
+      }
+    }
+  }
+
+  if (n.expiresAt && n.b > 0.3) {
+    const remaining = new Date(n.expiresAt) - Date.now();
+    if (remaining > 0 && remaining < 6 * 3600000) {
+      const mins = Math.floor(remaining / 60000);
+      const timeStr = mins >= 60 ? Math.floor(mins/60) + 'h ' + (mins%60) + 'm' : mins + 'm';
+      const urgA = Math.max(0.3, urgency) * n.b;
+      ctx.fillStyle = `rgba(255,150,70,${urgA * 0.8})`;
+      ctx.font = '9px "SF Mono",monospace';
+      ctx.fillText('◈ ' + timeStr, n.rx + radius + 5, n.ry + 30);
+    }
+  }
+}
+
+// birth ripple — expanding ring projected in 3D
+function drawBirths() {
+  for (let i = births.length - 1; i >= 0; i--) {
+    const b = births[i];
+    b.t += 0.016;
+    const p = b.t / 2.2;
+    if (p > 1) { births.splice(i, 1); continue; }
+    const proj = project(b.wx, b.wy, b.wz);
+    if (!proj) continue;
+    const eased = 1 - (1 - p) * (1 - p);
+    const radius = eased * 75 * proj.ps;
+    const alpha  = (1 - p) * 0.55;
+    ctx.strokeStyle = `rgba(${b.r},${b.g},${b.b},${alpha})`;
+    ctx.lineWidth = 1.2;
+    ctx.setLineDash([]);
+    ctx.beginPath(); ctx.arc(proj.sx, proj.sy, radius, 0, Math.PI * 2); ctx.stroke();
+  }
+}
+
+function drawBursts() {
+  for (let i = bursts.length - 1; i >= 0; i--) {
+    const b = bursts[i];
+    b.t += 0.016;
+    const p = b.t / 1.0;
+    if (p > 1) { bursts.splice(i, 1); continue; }
+    const proj = project(b.wx, b.wy, b.wz);
+    if (!proj) continue;
+    for (let ring = 0; ring < 3; ring++) {
+      const rp = Math.min(1, p + ring * 0.18);
+      const radius = rp * 90 * proj.ps;
+      const alpha  = (1 - rp) * 0.65 / (ring + 1);
+      ctx.strokeStyle = `rgba(${b.r},${b.g},${b.b},${alpha})`;
+      ctx.lineWidth = 1.5 - ring * 0.4;
+      ctx.setLineDash([]);
+      ctx.beginPath(); ctx.arc(proj.sx, proj.sy, radius, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+}
+
+function drawSelf() {
+  // viewer crosshair — fixed at ground level near camera
+  const sx = cx;
+  const sy = H * 0.78;
+  const pulse = 0.14 * Math.sin(clock * 2.2);
+  const r = 8 + pulse * 4;
+  const gr = ctx.createRadialGradient(sx, sy, 0, sx, sy, 38);
+  gr.addColorStop(0,   'rgba(212,175,55,0.38)');
+  gr.addColorStop(0.4, 'rgba(212,175,55,0.06)');
+  gr.addColorStop(1,   'rgba(0,0,0,0)');
+  ctx.fillStyle = gr;
+  ctx.beginPath(); ctx.arc(sx, sy, 38, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = `rgba(212,175,55,${0.42 + pulse * 2.2})`;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.moveTo(sx - r, sy); ctx.lineTo(sx + r, sy);
+  ctx.moveTo(sx, sy - r); ctx.lineTo(sx, sy + r);
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(212,175,55,0.9)';
+  ctx.beginPath(); ctx.arc(sx, sy, 2, 0, Math.PI * 2); ctx.fill();
+}
+
+function drawSky() {
+  // faint atmospheric gradient above horizon
+  const hy = H * HORIZON_FRAC;
+  const gr = ctx.createLinearGradient(0, 0, 0, hy);
+  gr.addColorStop(0, 'rgba(4,4,22,0.6)');
+  gr.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = gr;
+  ctx.fillRect(0, 0, W, hy);
+}
+
+function drawGrid() {
+  const GS = 90;       // world-space grid spacing
+  const EX = 1100;     // x extent
+  const EZ = 1200;     // z extent (depth)
+  ctx.setLineDash([]);
+
+  // depth lines (recede to horizon)
+  for (let wx = -EX; wx <= EX; wx += GS) {
+    const near = project(wx, 0, 0);
+    const far  = project(wx, 0, EZ);
+    if (!near || !far) continue;
+    if (near.sy < H * HORIZON_FRAC) continue;
+    const fade = 1 - Math.abs(wx) / (EX * 1.1);
+    ctx.strokeStyle = `rgba(38,52,130,${fade * 0.28})`;
+    ctx.lineWidth = 0.5;
+    ctx.beginPath(); ctx.moveTo(near.sx, near.sy); ctx.lineTo(far.sx, far.sy); ctx.stroke();
+  }
+
+  // cross lines (horizontal bands receding)
+  for (let wz = 0; wz < EZ; wz += GS) {
+    const left  = project(-EX, 0, wz);
+    const right = project( EX, 0, wz);
+    if (!left || !right) continue;
+    if (left.sy < H * HORIZON_FRAC - 2) continue;
+    const fade = 1 - wz / EZ;
+    ctx.strokeStyle = `rgba(38,52,130,${fade * 0.22})`;
+    ctx.lineWidth = 0.5;
+    ctx.beginPath(); ctx.moveTo(left.sx, left.sy); ctx.lineTo(right.sx, right.sy); ctx.stroke();
+  }
+}
+
+function drawHorizon() {
+  const hy = H * HORIZON_FRAC;
+  // glow band at horizon
+  const gr = ctx.createLinearGradient(0, hy - 18, 0, hy + 18);
+  gr.addColorStop(0,   'rgba(0,0,0,0)');
+  gr.addColorStop(0.5, 'rgba(50,70,200,0.09)');
+  gr.addColorStop(1,   'rgba(0,0,0,0)');
+  ctx.fillStyle = gr;
+  ctx.fillRect(0, hy - 18, W, 36);
+  // hard horizon line
+  ctx.strokeStyle = 'rgba(55,75,190,0.18)';
+  ctx.lineWidth = 0.6;
+  ctx.setLineDash([]);
+  ctx.beginPath(); ctx.moveTo(0, hy); ctx.lineTo(W, hy); ctx.stroke();
+}
+
+// --- wanderers ---
+const wanderers = {};
+
+function idOffset(id) {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (((h << 5) + h) + id.charCodeAt(i)) >>> 0;
+  const angle = (h % 1000) / 1000 * Math.PI * 2;
+  const r = 18 + (h % 500) / 500 * 14;
+  return [Math.cos(angle) * r, Math.sin(angle) * r];
+}
+
+function updateWanderers(users) {
+  const seen = new Set();
+  users.forEach(u => {
+    seen.add(u.id);
+    const node = nodes[u.position];
+    if (!node) return;
+    const [ox, oy] = idOffset(u.id);
+    const tx = (node.rx || node.x) + ox, ty = (node.ry || node.y) + oy;
+    if (!wanderers[u.id]) wanderers[u.id] = { x: tx, y: ty, phase: Math.random() * Math.PI * 2, name: u.name || null, serverId: u.id, encounterFlash: 0 };
+    wanderers[u.id].tx = tx;
+    wanderers[u.id].ty = ty;
+    wanderers[u.id].name = u.name || null;
+    wanderers[u.id].serverId = u.id;
+  });
+  Object.keys(wanderers).forEach(id => { if (!seen.has(id)) delete wanderers[id]; });
+}
+
+function drawWanderers() {
+  Object.values(wanderers).forEach(w => {
+    if (w.tx !== undefined) { w.x = lerp(w.x, w.tx, 0.06); w.y = lerp(w.y, w.ty, 0.06); }
+    const pulse = 1 + 0.2 * Math.sin(clock * 1.8 + w.phase);
+    const r = 3.5 * pulse;
+    const gr = ctx.createRadialGradient(w.x, w.y, 0, w.x, w.y, r * 5);
+    gr.addColorStop(0, 'rgba(80,200,200,0.3)');
+    gr.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = gr;
+    ctx.beginPath();
+    ctx.arc(w.x, w.y, r * 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = `rgba(100,220,220,${0.7 + 0.3 * Math.sin(clock * 1.8 + w.phase)})`;
+    ctx.beginPath();
+    ctx.arc(w.x, w.y, r, 0, Math.PI * 2);
+    ctx.fill();
+    if (w.name) {
+      ctx.fillStyle = `rgba(100,220,220,${0.5 + 0.2 * Math.sin(clock * 1.8 + w.phase)})`;
+      ctx.font = '9px "SF Mono",monospace';
+      ctx.fillText(w.name, w.x + r * 2 + 4, w.y + 3);
+    }
+    // moving_toward: 向かっている方向を点線で示す
+    if (w.moving_toward) {
+      const target = nodes[w.moving_toward];
+      if (target && target.rx) {
+        const dx = target.rx - w.x, dy = target.ry - w.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist > 20 && dist < 600) {
+          const alpha = 0.12 * (1 + 0.3 * Math.sin(clock * 1.5 + w.phase));
+          ctx.strokeStyle = `rgba(80,200,200,${alpha})`;
+          ctx.lineWidth = 0.5;
+          ctx.setLineDash([3, 9]);
+          ctx.beginPath(); ctx.moveTo(w.x, w.y); ctx.lineTo(target.rx, target.ry); ctx.stroke();
+          ctx.setLineDash([]);
+        }
+      }
+    }
+    // encounter flash
+    if (w.encounterFlash > 0) {
+      const ef = w.encounterFlash;
+      w.encounterFlash = Math.max(0, ef - 0.02);
+      const gr2 = ctx.createRadialGradient(w.x, w.y, 0, w.x, w.y, r * 12 * ef);
+      gr2.addColorStop(0, `rgba(200,180,80,${ef * 0.5})`);
+      gr2.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = gr2;
+      ctx.beginPath(); ctx.arc(w.x, w.y, r * 12 * ef, 0, Math.PI * 2); ctx.fill();
+    }
+  });
+}
+
+// --- entry & interest ---
+let interest = sessionStorage.getItem('gp_interest') || '';
+
+// welcome ripple burst on entry
+const welcomeRipples = [];
+function spawnWelcomeRipples() {
+  for (let i = 0; i < 4; i++) {
+    welcomeRipples.push({ t: i * 0.18, maxR: Math.min(W, H) * (0.22 + i * 0.14) });
+  }
+}
+function drawWelcomeRipples() {
+  const hy = H * HORIZON_FRAC;
+  for (let i = welcomeRipples.length - 1; i >= 0; i--) {
+    const rip = welcomeRipples[i];
+    rip.t += 0.012;
+    if (rip.t >= 1) { welcomeRipples.splice(i, 1); continue; }
+    const r = rip.maxR * rip.t;
+    const a = (1 - rip.t) * 0.18;
+    ctx.strokeStyle = `rgba(200,168,64,${a})`;
+    ctx.lineWidth = 0.8;
+    ctx.setLineDash([]);
+    ctx.beginPath(); ctx.arc(cx, hy, r, 0, Math.PI * 2); ctx.stroke();
+  }
+}
+
+// identity — localStorage で永続化 (webクライアント用)
+const WEB_ID_KEY = 'gp_web_id';
+function getOrCreateWebId(name) {
+  const stored = localStorage.getItem(WEB_ID_KEY);
+  const storedId = stored ? JSON.parse(stored).id : null;
+  return fetch('/arrive', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ identity: storedId, name: name || null }),
+  })
+    .then(r => r.json())
+    .then(d => { localStorage.setItem(WEB_ID_KEY, JSON.stringify({id: d.identity})); return d.identity; })
+    .catch(() => storedId);
+}
+
+async function updateInterest(newText) {
+  const t = newText.trim();
+  if (!t) return;
+  interest = t;
+  sessionStorage.setItem('gp_interest', interest);
+
+  // 方向変更をencounterとして記録 → interest_vecが更新される
+  const stored = localStorage.getItem(WEB_ID_KEY);
+  if (stored) {
+    try {
+      const userId = JSON.parse(stored).id;
+      await fetch('/encounter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          position: currentPosition,
+          near_labels: [],
+          interest_text: interest,
+        }),
+      });
+    } catch(_) {}
+  }
+
+  // wanderバーのplaceholderを更新
+  const wi = document.getElementById('wander-input');
+  if (wi) { wi.value = ''; wi.placeholder = interest.slice(0, 40); }
+
+  startSSE(); // 新しい方向でSSE再接続
+}
+
+function enterSpace(text) {
+  interest = text.trim() || 'curiosity exploration wandering';
+  sessionStorage.setItem('gp_interest', interest);
+  const nameInput = document.getElementById('entry-name');
+  if (nameInput && nameInput.value.trim()) {
+    authorName = nameInput.value.trim().slice(0, 24);
+    sessionStorage.setItem('gp_author', authorName);
+  }
+  const el = document.getElementById('entry');
+  el.classList.add('hidden');
+  setTimeout(() => el.style.display = 'none', 1200);
+  // welcome ripples
+  spawnWelcomeRipples();
+  // request pointer lock so player can start moving immediately
+  setTimeout(() => canvas.requestPointerLock(), 400);
+  // hint fades out after 8s
+  setTimeout(() => document.getElementById('hint').classList.add('hidden'), 8000);
+  startSSE();
+}
+
+// wander bar
+const _wi = document.getElementById('wander-input');
+if (_wi) {
+  _wi.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { updateInterest(_wi.value); _wi.blur(); }
+    if (e.key === 'Escape') _wi.blur();
+  });
+}
+
+// '/' key: wanderバーにフォーカス
+
+document.getElementById('entry-enter').addEventListener('click', () => {
+  enterSpace(document.getElementById('entry-input').value);
+});
+document.getElementById('entry-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') enterSpace(e.target.value);
+});
+document.getElementById('entry-skip').addEventListener('click', () => {
+  enterSpace('');
+});
+
+// --- data ---
+let allEntities = [];
+let currentPosition = 'plaza';
+
+async function fetchEntities() {
+  try {
+    const newEntities = await fetch('/entities').then(r => r.json());
+    const newLabels = new Set(newEntities.map(e => e.label));
+    prevEntityLabels.forEach(label => {
+      if (!newLabels.has(label) && nodes[label] && nodes[label].b > 0.1) {
+        const [cr, cg, cb] = KIND_COLOR[nodes[label].kind] || [140, 140, 190];
+        bursts.push({ wx: nodes[label].wx, wy: nodes[label].wy, wz: nodes[label].wz, t: 0, r: cr, g: cg, b: cb });
+      }
+    });
+    prevEntityLabels = newLabels;
+    allEntities = newEntities;
+  } catch {}
+}
+
+async function fetchPresence() {
+  try {
+    const p = await fetch('/presence').then(r => r.json());
+    updateWanderers(p.users || []);
+  } catch {}
+}
+
+function handleFieldState(f) {
+  updateNodes(f, allEntities);
+  updateMessages(f);
+
+  // wandererのmoving_toward情報をマージ
+  const directions = {};
+  [...(f.near || []), ...(f.horizon || [])].forEach(e => {
+    if (e.moving_toward) directions[e.id] = e.moving_toward;
+  });
+  Object.values(wanderers).forEach(w => {
+    if (directions[w.serverId]) w.moving_toward = directions[w.serverId];
+  });
+
+  const pos = f.position || '—';
+  document.getElementById('position').textContent = pos.length > 48 ? pos.slice(0, 46) + '…' : pos;
+  document.getElementById('presence-count').textContent = f.presence || 0;
+  document.getElementById('conn').textContent = 'live';
+  currentPosition = f.position || 'plaza';
+  const driftEl = document.getElementById('drift');
+  if (f.drift && f.drift.length) {
+    driftEl.innerHTML = f.drift.slice(0, 2).map(d =>
+      `<span class="drift-link" data-toward="${escapeHtml(d.toward)}">› ${escapeHtml(d.toward)}</span>`
+    ).join('  ');
+    driftEl.querySelectorAll('.drift-link').forEach(el => {
+      el.addEventListener('click', () => updateInterest(el.dataset.toward));
+    });
+  } else {
+    driftEl.textContent = '';
+  }
+}
+
+function handleSpaceEvent(evt) {
+  if (evt.kind === 'emergence') {
+    // 新エンティティ誕生: 特別なrippleを発生
+    const n = nodes[evt.label];
+    if (n && n.wx !== undefined) {
+      const [cr, cg, cb] = [200, 168, 64]; // gold
+      for (let i = 0; i < 3; i++) {
+        births.push({ wx: n.wx, wy: n.wy + 8, wz: n.wz, t: i * 0.3, r: cr, g: cg, b: cb });
+      }
+    }
+    // UIに一時表示
+    flashEvent('✦ ' + evt.label + ' emerged');
+
+  } else if (evt.kind === 'convergence') {
+    // 収束: 対象エンティティにpulseリングを追加
+    const n = nodes[evt.label];
+    if (n && n.wx !== undefined) {
+      convergencePulses.push({ label: evt.label, t: 0, detail: evt.detail || '' });
+    }
+    flashEvent('⟳ gathering near ' + evt.label);
+
+  } else if (evt.kind === 'encounter') {
+    // 出会い: wandererを一時的に強調
+    const w = Object.values(wanderers).find(w => w.name === evt.label || w.rawLabel === evt.label);
+    if (w) w.encounterFlash = 1.0;
+    flashEvent('◎ ' + evt.label + ' is near');
+  }
+}
+
+function flashEvent(text) {
+  const el = document.getElementById('conn');
+  const prev = el.textContent;
+  el.textContent = text;
+  el.style.color = '#a08030';
+  setTimeout(() => {
+    el.textContent = prev;
+    el.style.color = '';
+  }, 4000);
+}
+
+let sseConn = null;
+
+function startSSE() {
+  if (sseConn) sseConn.close();
+
+  getOrCreateWebId(authorName).then(userId => {
+    const params = new URLSearchParams({ passive: 'true' });
+    if (userId)    params.set('user_id', userId);
+    if (authorName) params.set('name', authorName);
+
+    sseConn = new EventSource('/field/stream?' + params.toString());
+
+    sseConn.addEventListener('field', e => {
+      try { handleFieldState(JSON.parse(e.data)); } catch(_) {}
+    });
+
+    sseConn.addEventListener('space', e => {
+      try { handleSpaceEvent(JSON.parse(e.data)); } catch(_) {}
+    });
+
+    sseConn.onerror = () => {
+      document.getElementById('conn').textContent = 'no signal';
+    };
+  });
+
+  // entities と presence は引き続きポーリング (SSEに含まれないため)
+  fetchEntities();
+  fetchPresence();
+  setInterval(fetchEntities, 30000);
+  setInterval(fetchPresence, 6000);
+}
+
+// returning visitor: skip entry screen
+if (interest) {
+  document.getElementById('entry').style.display = 'none';
+  setTimeout(() => document.getElementById('hint').classList.add('hidden'), 6000);
+  const _wii = document.getElementById('wander-input');
+  if (_wii && interest) _wii.placeholder = interest.slice(0, 40);
+  startSSE();
+}
+
+animate();
+</script>
+</body>
+</html>

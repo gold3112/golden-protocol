@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Privacy Policy — Golden Protocol</title>
+<style>
+  :root { --gold: #c8a840; --bg: #0a0a0c; --text: #d0c8b0; --muted: #6a6050; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Georgia', serif;
+         line-height: 1.75; max-width: 720px; margin: 0 auto; padding: 3rem 1.5rem; }
+  h1 { color: var(--gold); font-size: 1.6rem; margin-bottom: 0.3rem; }
+  h2 { color: var(--gold); font-size: 1.05rem; margin: 2.2rem 0 0.6rem;
+       text-transform: uppercase; letter-spacing: 0.08em; }
+  p  { margin-bottom: 1rem; }
+  a  { color: var(--gold); text-decoration: none; border-bottom: 1px solid var(--muted); }
+  a:hover { border-color: var(--gold); }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0 1.5rem; font-size: 0.9rem; }
+  th, td { padding: 0.5rem 0.75rem; border: 1px solid #2a2820; text-align: left; }
+  th { background: #14120e; color: var(--gold); }
+  tr:nth-child(even) { background: #0e0d0a; }
+  .meta { color: var(--muted); font-size: 0.85rem; margin-bottom: 2.5rem; }
+  .back { display: inline-block; margin-top: 3rem; font-size: 0.9rem;
+          color: var(--muted); border-bottom: none; }
+  .back:hover { color: var(--gold); }
+  hr { border: none; border-top: 1px solid #2a2820; margin: 2rem 0; }
+</style>
+</head>
+<body>
+<h1>Privacy Policy</h1>
+<p class="meta">Golden Protocol Extension &nbsp;·&nbsp; Last updated: 2026-03-17</p>
+
+<h2>Overview</h2>
+<p>Golden Protocol is a browser extension that gives you a presence in a shared semantic space.
+This policy explains what data the extension handles, how it is used, and what is never collected.</p>
+
+<h2>What is stored on your device</h2>
+<table>
+  <tr><th>Data</th><th>Storage</th><th>Purpose</th></tr>
+  <tr><td>Random UUID (userId)</td><td>chrome.storage.local</td><td>Identifies your presence across sessions</td></tr>
+  <tr><td>Current page text excerpt (≤600 chars)</td><td>chrome.storage.session</td><td>Temporary; used only to compute your interest vector</td></tr>
+</table>
+
+<h2>What is sent to the server</h2>
+<table>
+  <tr><th>Data sent</th><th>What is NOT sent</th></tr>
+  <tr><td>384-dimensional semantic vector (your interest embedding)</td><td>Raw page text or URLs</td></tr>
+  <tr><td>Your random UUID</td><td>Any personally identifiable information</td></tr>
+</table>
+<p>The server receives a compressed semantic representation of what you are reading — not the actual content or address.
+The vector cannot be reversed into readable text.</p>
+
+<h2>What is never collected</h2>
+<p>No browsing history is stored or transmitted. No personally identifiable information is collected.
+No data is sold or shared with third parties. No analytics, crash reporting, or tracking SDKs are included.</p>
+
+<h2>Server-side data</h2>
+<p>The server stores your UUID and interest vector, a short encounter history (last 200 visits as position labels and timestamps — not URLs),
+and any messages you voluntarily leave in the field (auto-deleted after 2 hours).
+This data is not linked to any real-world identity. Your server-side data expires naturally within 30 days of inactivity.</p>
+
+<h2>Permissions</h2>
+<table>
+  <tr><th>Permission</th><th>Why it is needed</th></tr>
+  <tr><td>storage</td><td>Store your UUID locally so your identity persists across sessions</td></tr>
+  <tr><td>activeTab</td><td>Read the current tab's text to compute your interest vector</td></tr>
+  <tr><td>tabs</td><td>Detect navigation in single-page apps so the field updates as you browse</td></tr>
+  <tr><td>host: space.gold3112.online</td><td>Send interest vectors to and receive field state from the Golden Protocol server</td></tr>
+</table>
+
+<h2>Data deletion</h2>
+<p>Uninstalling the extension removes your UUID from chrome.storage.local.
+Your server-side interest vector and encounter history expire automatically within 30 days.
+To request immediate server-side deletion, open an issue at
+<a href="https://github.com/gold3112/golden-protocol/issues">github.com/gold3112/golden-protocol/issues</a>.</p>
+
+<hr>
+<p style="color:var(--muted);font-size:0.85rem;">
+Questions or concerns: <a href="https://github.com/gold3112/golden-protocol/issues">open an issue on GitHub</a>
+</p>
+<a class="back" href="/">← back to the field</a>
+</body>
+</html>
